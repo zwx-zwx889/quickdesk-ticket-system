@@ -1,0 +1,30 @@
+# AI and editor configuration
+.claude/
+.vscode/
+.idea/
+
+# Python virtual environment
+.venv/
+venv/
+
+# Application database
+todos.db
+*.db-journal
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
