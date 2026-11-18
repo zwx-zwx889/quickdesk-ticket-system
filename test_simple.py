@@ -207,9 +207,13 @@ class BasicUITestCase(unittest.TestCase):
         """Test that form elements are present."""
         response = self.client.get('/')
         self.assertIn(b'name="task"', response.data)
+        self.assertIn(b'name="description"', response.data)
+        self.assertIn(b'name="priority"', response.data)
+        self.assertIn(b'name="requester"', response.data)
+        self.assertIn(b'name="assignee"', response.data)
         self.assertIn('创建工单'.encode('utf-8'), response.data)
         self.assertIn(
-            'placeholder="请输入工单标题..."'.encode('utf-8'),
+            'placeholder="请输入工单标题"'.encode('utf-8'),
             response.data
         )
 
