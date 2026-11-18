@@ -256,6 +256,91 @@ class FlaskTasksTestCase(unittest.TestCase):
             response.data
         )
 
+    def test_full_ticket_edit(self):
+        """Test complete ticket information editing."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '原始工单标题',
+                'description': '原始问题描述',
+                'priority': 'medium',
+                'requester': '原提交人',
+                'assignee': '原处理人'
+            },
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('原始工单标题',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+        # 编辑页面能够加载并回填原数据
+        response = self.client.get(
+            f'/edit/{ticket_id}'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '编辑工单'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '原始问题描述'.encode('utf-8'),
+            response.data
+        )
+
+        # 提交完整修改
+        response = self.client.post(
+            f'/edit/{ticket_id}',
+            data={
+                'task': '更新后的工单标题',
+                'description': '更新后的问题描述',
+                'priority': 'urgent',
+                'requester': '王芳',
+                'assignee': '张伟'
+            },
+            follow_redirects=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '工单信息更新成功！'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '更新后的工单标题'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '紧急 · 4小时'.encode('utf-8'),
+            response.data
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                '''
+                SELECT task,
+                       description,
+                       priority,
+                       requester,
+                       assignee,
+                       sla_deadline
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,)
+            ).fetchone()
+
+        self.assertEqual(row[0], '更新后的工单标题')
+        self.assertEqual(row[1], '更新后的问题描述')
+        self.assertEqual(row[2], 'urgent')
+        self.assertEqual(row[3], '王芳')
+        self.assertEqual(row[4], '张伟')
+        self.assertIsNotNone(row[5])
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)
@@ -280,7 +365,10 @@ class FlaskTasksTestCase(unittest.TestCase):
                                   data={'task': 'Updated Workflow Task'}, 
                                   follow_redirects=True)
         self.assertIn(b'Updated Workflow Task', response.data)
-        self.assertIn('工单更新成功！'.encode('utf-8'), response.data)
+        self.assertIn(
+            '工单信息更新成功！'.encode('utf-8'),
+            response.data
+        )
         
         # Toggle task completion
         response = self.client.get(f'/toggle/{task_id}', follow_redirects=True)

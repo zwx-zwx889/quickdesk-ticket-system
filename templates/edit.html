@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>编辑工单 - QuickDesk</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+          rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}"
+          rel="stylesheet">
+</head>
+
+<body>
+<nav class="navbar navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand"
+           href="{{ url_for('index') }}">
+            <i class="bi bi-ticket-detailed me-2"></i>
+            QuickDesk
+        </a>
+
+        <a href="{{ url_for('index') }}"
+           class="btn btn-outline-light">
+            <i class="bi bi-arrow-left"></i>
+            返回工单列表
+        </a>
+    </div>
+</nav>
+
+<main class="container my-5">
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <h2 class="mb-4">
+                        <i class="bi bi-pencil-square"></i>
+                        编辑工单
+                    </h2>
+
+                    <form action="{{ url_for('edit_todo', todo_id=todo.id) }}"
+                          method="post">
+
+                        <div class="mb-3">
+                            <label for="task"
+                                   class="form-label">
+                                工单标题
+                            </label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="task"
+                                   name="task"
+                                   value="{{ todo.task }}"
+                                   required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description"
+                                   class="form-label">
+                                问题描述
+                            </label>
+                            <textarea class="form-control"
+                                      id="description"
+                                      name="description"
+                                      rows="4">{{ todo.description }}</textarea>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="priority"
+                                       class="form-label">
+                                    优先级
+                                </label>
+                                <select class="form-select"
+                                        id="priority"
+                                        name="priority">
+                                    <option value="low"
+                                        {{ 'selected' if todo.priority == 'low' else '' }}>
+                                        低（72小时）
+                                    </option>
+                                    <option value="medium"
+                                        {{ 'selected' if todo.priority == 'medium' else '' }}>
+                                        中（24小时）
+                                    </option>
+                                    <option value="high"
+                                        {{ 'selected' if todo.priority == 'high' else '' }}>
+                                        高（8小时）
+                                    </option>
+                                    <option value="urgent"
+                                        {{ 'selected' if todo.priority == 'urgent' else '' }}>
+                                        紧急（4小时）
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="requester"
+                                       class="form-label">
+                                    提交人
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="requester"
+                                       name="requester"
+                                       value="{{ todo.requester }}">
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="assignee"
+                                       class="form-label">
+                                    处理人
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="assignee"
+                                       name="assignee"
+                                       value="{{ todo.assignee }}">
+                            </div>
+                        </div>
+
+                        <div class="alert alert-light border">
+                            <div>
+                                当前状态：
+                                <strong>
+                                    {%
+                                            if todo.status == 'pending' %}
+                                        待处理
+                                    {% elif todo.status == 'in_progress' %}
+                                        处理中
+                                    {% elif todo.status == 'completed' %}
+                                        已完成
+                                    {% else %}
+                                        {{ todo.status }}
+                                    {% endif %}
+                                </strong>
+                            </div>
+                            <div>
+                                当前 SLA 截止时间：
+                                <strong>
+                                    {{ todo.sla_deadline or '暂无' }}
+                                </strong>
+                            </div>
+                            <small class="text-muted">
+                                修改优先级后，系统将重新计算 SLA 截止时间。
+                            </small>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2">
+                            <a href="{{ url_for('index') }}"
+                               class="btn btn-outline-secondary">
+                                取消
+                            </a>
+
+                            <button type="submit"
+                                    class="btn btn-primary">
+                                <i class="bi bi-check-lg"></i>
+                                保存修改
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+</script>
+</body>
+</html>

@@ -279,18 +279,107 @@ def toggle_todo_with_children(todo_id):
 
     return redirect(url_for('index'))
 
-@app.route('/edit/<int:todo_id>', methods=['POST'])
+@app.route('/edit/<int:todo_id>', methods=['GET', 'POST'])
 def edit_todo(todo_id):
-    new_task = request.form.get('task', '').strip()
-    if new_task:
+    with closing(sqlite3.connect(DATABASE)) as conn:
+        conn.row_factory = sqlite3.Row
+        todo = conn.execute(
+            'SELECT * FROM todos WHERE id = ?',
+            (todo_id,)
+        ).fetchone()
+
+    if todo is None:
+        flash('未找到指定工单！', 'error')
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        task = request.form.get(
+            'task',
+            todo['task']
+        ).strip()
+
+        description = request.form.get(
+            'description',
+            todo['description']
+        ).strip()
+
+        priority = request.form.get(
+            'priority',
+            todo['priority']
+        )
+
+        requester = request.form.get(
+            'requester',
+            todo['requester']
+        ).strip()
+
+        assignee = request.form.get(
+            'assignee',
+            todo['assignee']
+        ).strip()
+
+        allowed_priorities = {
+            'low',
+            'medium',
+            'high',
+            'urgent'
+        }
+
+        if priority not in allowed_priorities:
+            priority = todo['priority']
+
+        if not task:
+            flash('工单标题不能为空！', 'error')
+            return redirect(
+                url_for('edit_todo', todo_id=todo_id)
+            )
+
+        sla_hours = {
+            'urgent': 4,
+            'high': 8,
+            'medium': 24,
+            'low': 72
+        }
+
+        deadline = datetime.now() + timedelta(
+            hours=sla_hours[priority]
+        )
+        sla_deadline = deadline.strftime(
+            '%Y-%m-%d %H:%M:%S'
+        )
+
         with closing(sqlite3.connect(DATABASE)) as conn:
             conn.execute(
-                'UPDATE todos SET task = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                (new_task, todo_id)
+                '''
+                UPDATE todos
+                SET task = ?,
+                    description = ?,
+                    priority = ?,
+                    requester = ?,
+                    assignee = ?,
+                    sla_deadline = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                ''',
+                (
+                    task,
+                    description,
+                    priority,
+                    requester,
+                    assignee,
+                    sla_deadline,
+                    todo_id
+                )
             )
             conn.commit()
-        flash('工单更新成功！', 'success')
-    return redirect(url_for('index'))
+
+        flash('工单信息更新成功！', 'success')
+        return redirect(url_for('index'))
+
+    return render_template(
+        'edit.html',
+        todo=todo
+    )
 
 @app.route('/about')
 def about():
