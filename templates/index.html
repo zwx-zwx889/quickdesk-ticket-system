@@ -128,14 +128,76 @@
                     </form>
                 </div>
 
+            <!-- 工单搜索与筛选 -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="get"
+              action="{{ url_for('index') }}"
+              class="row g-2 align-items-end">
+
+            <div class="col-md-6">
+                <label for="q" class="form-label">
+                    搜索工单
+                </label>
+                <input type="text"
+                       class="form-control"
+                       id="q"
+                       name="q"
+                       value="{{ search_query }}"
+                       placeholder="搜索标题、描述、提交人或处理人">
+            </div>
+
+            <div class="col-md-3">
+                <label for="status-filter" class="form-label">
+                    工单状态
+                </label>
+                <select class="form-select"
+                        id="status-filter"
+                        name="status">
+                    <option value="all"
+                        {{ 'selected' if status_filter == 'all' else '' }}>
+                        全部状态
+                    </option>
+                    <option value="pending"
+                        {{ 'selected' if status_filter == 'pending' else '' }}>
+                        待处理
+                    </option>
+                    <option value="in_progress"
+                        {{ 'selected' if status_filter == 'in_progress' else '' }}>
+                        处理中
+                    </option>
+                    <option value="completed"
+                        {{ 'selected' if status_filter == 'completed' else '' }}>
+                        已完成
+                    </option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <button type="submit"
+                        class="btn btn-primary me-1">
+                    <i class="bi bi-search"></i>
+                    查询
+                </button>
+
+                <a href="{{ url_for('index') }}"
+                   class="btn btn-outline-secondary">
+                    重置
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
                 <div class="todos-container">
                     {% if todos %}
                         <div class="todo-stats mb-3">
                             <small class="text-muted">
-                                工单总数：{{ todos|length }} |
-                                待处理：{{ todos|selectattr('status', 'equalto', 'pending')|list|length }} |
-                                处理中：{{ todos|selectattr('status', 'equalto', 'in_progress')|list|length }} |
-                                已完成：{{ todos|selectattr('status', 'equalto', 'completed')|list|length }}
+                                工单总数：{{ all_todos|length }} |
+                                待处理：{{ all_todos|selectattr('status', 'equalto', 'pending')|list|length }} |
+                                处理中：{{ all_todos|selectattr('status', 'equalto', 'in_progress')|list|length }} |
+                                已完成：{{ all_todos|selectattr('status', 'equalto', 'completed')|list|length }} |
+                                当前结果：{{ todos|length }}
                             </small>
                         </div>
                         </div>

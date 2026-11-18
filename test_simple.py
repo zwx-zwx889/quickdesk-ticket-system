@@ -192,6 +192,70 @@ class FlaskTasksTestCase(unittest.TestCase):
             response.data
         )
 
+    def test_ticket_search_and_filter(self):
+        """Test ticket keyword search and status filter."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '财务系统无法登录',
+                'description': '账号登录失败',
+                'requester': '王芳',
+                'assignee': '技术支持'
+            },
+            follow_redirects=True
+        )
+
+        self.client.post(
+            '/add',
+            data={
+                'task': '打印机无法使用',
+                'description': '办公室打印机没有响应',
+                'requester': '李明',
+                'assignee': '设备支持'
+            },
+            follow_redirects=True
+        )
+
+        # 按提交人搜索
+        response = self.client.get(
+            '/?q=王芳'
+        )
+        self.assertIn(
+            '财务系统无法登录'.encode('utf-8'),
+            response.data
+        )
+        self.assertNotIn(
+            '打印机无法使用'.encode('utf-8'),
+            response.data
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('打印机无法使用',)
+            ).fetchone()
+            ticket_id = row[0]
+
+        # 将第二张工单改为处理中
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True
+        )
+
+        # 按处理中状态筛选
+        response = self.client.get(
+            '/?status=in_progress'
+        )
+        self.assertIn(
+            '打印机无法使用'.encode('utf-8'),
+            response.data
+        )
+        self.assertNotIn(
+            '财务系统无法登录'.encode('utf-8'),
+            response.data
+        )
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)

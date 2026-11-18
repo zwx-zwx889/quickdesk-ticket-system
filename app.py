@@ -71,7 +71,41 @@ def get_todos():
 
 @app.route('/')
 def index():
-    todos = get_todos_hierarchical()
+    all_todos = get_todos_hierarchical()
+
+    search_query = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', 'all').strip()
+
+    allowed_statuses = {
+        'all',
+        'pending',
+        'in_progress',
+        'completed'
+    }
+
+    if status_filter not in allowed_statuses:
+        status_filter = 'all'
+
+    todos = all_todos
+
+    # 按标题、描述、提交人和处理人搜索
+    if search_query:
+        keyword = search_query.lower()
+        todos = [
+            todo for todo in todos
+            if keyword in (todo['task'] or '').lower()
+            or keyword in (todo['description'] or '').lower()
+            or keyword in (todo['requester'] or '').lower()
+            or keyword in (todo['assignee'] or '').lower()
+        ]
+
+    # 按工单状态筛选
+    if status_filter != 'all':
+        todos = [
+            todo for todo in todos
+            if todo['status'] == status_filter
+        ]
+
     current_time = datetime.now().strftime(
         '%Y-%m-%d %H:%M:%S'
     )
@@ -79,7 +113,10 @@ def index():
     return render_template(
         'index.html',
         todos=todos,
-        current_time=current_time
+        all_todos=all_todos,
+        current_time=current_time,
+        search_query=search_query,
+        status_filter=status_filter
     )
 
 @app.route('/add', methods=['POST'])
