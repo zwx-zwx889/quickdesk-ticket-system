@@ -151,6 +151,47 @@ class FlaskTasksTestCase(unittest.TestCase):
             self.assertEqual(status, 'pending')
             self.assertEqual(completed, 0)
 
+    def test_sla_status_display(self):
+        """Test normal and overdue SLA display."""
+        response = self.client.post(
+            '/add',
+            data={
+                'task': 'SLA测试工单',
+                'priority': 'urgent'
+            },
+            follow_redirects=True
+        )
+
+        # 新建工单的截止时间在未来，应显示 SLA 正常
+        self.assertIn('SLA正常'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('SLA测试工单',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+            # 将截止时间设置到过去，模拟超时
+            conn.execute(
+                '''
+                UPDATE todos
+                SET sla_deadline = ?
+                WHERE id = ?
+                ''',
+                ('2000-01-01 00:00:00', ticket_id)
+            )
+            conn.commit()
+
+        response = self.client.get('/')
+
+        # 未完成且超过截止时间，应显示 SLA 已超时
+        self.assertIn(
+            'SLA已超时'.encode('utf-8'),
+            response.data
+        )
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)

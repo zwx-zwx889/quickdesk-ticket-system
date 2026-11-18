@@ -71,8 +71,16 @@ def get_todos():
 
 @app.route('/')
 def index():
-    todos = get_todos()
-    return render_template('index.html', todos=todos)
+    todos = get_todos_hierarchical()
+    current_time = datetime.now().strftime(
+        '%Y-%m-%d %H:%M:%S'
+    )
+
+    return render_template(
+        'index.html',
+        todos=todos,
+        current_time=current_time
+    )
 
 @app.route('/add', methods=['POST'])
 def add_todo():
