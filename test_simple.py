@@ -8,7 +8,7 @@ import unittest
 import tempfile
 import os
 import sqlite3
-from app import app
+from app import app, init_db
 from contextlib import closing
 
 class FlaskTasksTestCase(unittest.TestCase):
@@ -40,22 +40,10 @@ class FlaskTasksTestCase(unittest.TestCase):
         # Clean up test directory
         import shutil
         shutil.rmtree(self.test_dir)
-    
+
     def init_test_db(self):
         """Initialize the test database."""
-        with closing(sqlite3.connect('quickdesk.db')) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS todos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task TEXT NOT NULL,
-                    completed BOOLEAN DEFAULT FALSE,
-                    parent_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (parent_id) REFERENCES todos (id) ON DELETE CASCADE
-                )
-            ''')
-            conn.commit()
+        init_db()
 
     def test_index_page_loads(self):
         """Test that the index page loads successfully."""
@@ -198,21 +186,9 @@ class BasicUITestCase(unittest.TestCase):
         
         self.original_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        
-        # Initialize test database
-        with closing(sqlite3.connect('quickdesk.db')) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS todos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task TEXT NOT NULL,
-                    completed BOOLEAN DEFAULT FALSE,
-                    parent_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (parent_id) REFERENCES todos (id) ON DELETE CASCADE
-                )
-            ''')
-            conn.commit()
+
+        # Initialize test database using the application schema
+        init_db()
     
     def tearDown(self):
         """Clean up after tests."""

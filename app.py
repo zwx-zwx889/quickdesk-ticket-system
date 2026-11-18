@@ -1,7 +1,7 @@
 from contextlib import closing
 from flask import Flask, render_template, request, redirect, url_for, flash
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
@@ -9,31 +9,37 @@ DATABASE = 'quickdesk.db'
 
 def init_db():
     with closing(sqlite3.connect(DATABASE)) as conn:
-        conn.execute('''
+        conn.execute(
+            '''
             CREATE TABLE IF NOT EXISTS todos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                priority TEXT NOT NULL DEFAULT 'medium',
-                status TEXT NOT NULL DEFAULT 'new',
-                requester TEXT NOT NULL DEFAULT '',
-                assignee TEXT NOT NULL DEFAULT '',
-                sla_deadline TIMESTAMP,
-                completed BOOLEAN DEFAULT FALSE,
-                parent_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (parent_id) REFERENCES todos (id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Add parent_id column to existing table if it doesn't exist
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            status TEXT NOT NULL DEFAULT 'new',
+            requester TEXT NOT NULL DEFAULT '',
+            assignee TEXT NOT NULL DEFAULT '',
+            sla_deadline TIMESTAMP,
+            completed BOOLEAN DEFAULT FALSE,
+            parent_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id)
+                REFERENCES todos (id)
+                ON DELETE CASCADE
+        )       
+            '''
+        )
+
         try:
-            conn.execute('ALTER TABLE todos ADD COLUMN parent_id INTEGER')
+            conn.execute(
+                'ALTER TABLE todos ADD COLUMN parent_id INTEGER'
+            )
         except sqlite3.OperationalError:
-            pass  # Column already exists
-        
+            pass
+
         conn.commit()
+
 
 def get_todos_hierarchical():
     with closing(sqlite3.connect(DATABASE)) as conn:
@@ -68,18 +74,56 @@ def index():
 @app.route('/add', methods=['POST'])
 def add_todo():
     task = request.form.get('task', '').strip()
-    parent_id = request.form.get('parent_id', None)
-    
+    description = request.form.get('description', '').strip()
+    priority = request.form.get('priority', 'medium')
+    requester = request.form.get('requester', '').strip()
+    assignee = request.form.get('assignee', '').strip()
+    parent_id = request.form.get('parent_id') or None
+
+    sla_hours = {
+        'urgent': 4,
+        'high': 8,
+        'medium': 24,
+        'low': 72
+    }
+    deadline = datetime.now() + timedelta(
+        hours=sla_hours.get(priority, 24)
+    )
+    sla_deadline = deadline.strftime('%Y-%m-%d %H:%M:%S')
+
     if task:
         with closing(sqlite3.connect(DATABASE)) as conn:
-            if parent_id:
-                conn.execute('INSERT INTO todos (task, parent_id) VALUES (?, ?)', (task, parent_id))
-            else:
-                conn.execute('INSERT INTO todos (task) VALUES (?)', (task,))
+            conn.execute(
+                '''
+                INSERT INTO todos (
+                    task,
+                    description,
+                    priority,
+                    status,
+                    requester,
+                    assignee,
+                    sla_deadline,
+                    parent_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    task,
+                    description,
+                    priority,
+                    'new',
+                    requester,
+                    assignee,
+                    sla_deadline,
+                    parent_id
+                )
+            )
             conn.commit()
+
         flash('工单创建成功！', 'success')
     else:
         flash('请输入工单标题！', 'error')
+
     return redirect(url_for('index'))
 
 @app.route('/toggle/<int:todo_id>')
