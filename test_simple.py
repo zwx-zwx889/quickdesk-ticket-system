@@ -8,8 +8,8 @@ import unittest
 import tempfile
 import os
 import sqlite3
-from app import app
-
+from app import app, init_db
+from contextlib import closing
 
 class FlaskTasksTestCase(unittest.TestCase):
     """Test Flask application functionality."""
@@ -40,36 +40,39 @@ class FlaskTasksTestCase(unittest.TestCase):
         # Clean up test directory
         import shutil
         shutil.rmtree(self.test_dir)
-    
+
     def init_test_db(self):
         """Initialize the test database."""
-        with sqlite3.connect('todos.db') as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS todos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task TEXT NOT NULL,
-                    completed BOOLEAN DEFAULT FALSE,
-                    parent_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (parent_id) REFERENCES todos (id) ON DELETE CASCADE
-                )
-            ''')
-            conn.commit()
-    
+        init_db()
+
     def test_index_page_loads(self):
         """Test that the index page loads successfully."""
         response = self.client.get('/')
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'FlaskTasks', response.data)
-        self.assertIn(b'No tasks yet!', response.data)
-    
-    def test_about_page_loads(self):
-        """Test that the about page loads successfully."""
+        self.assertIn(b'QuickDesk', response.data)
+        self.assertIn('暂无工单'.encode('utf-8'), response.data)
+
+    def test_about_page(self):
+        """Test QuickDesk about page loads."""
         response = self.client.get('/about')
+
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'About FlaskTasks', response.data)
-        self.assertIn(b'task management application', response.data)
+        self.assertIn(
+            '关于 QuickDesk'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '核心功能'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            'SLA 规则'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '项目说明'.encode('utf-8'),
+            response.data
+        )
     
     def test_add_task_success(self):
         """Test adding a task successfully."""
@@ -77,13 +80,287 @@ class FlaskTasksTestCase(unittest.TestCase):
         response = self.client.post('/add', data={'task': 'Test Task'}, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Test Task', response.data)
-        self.assertIn(b'Task added successfully!', response.data)
-    
+        self.assertIn('工单创建成功！'.encode('utf-8'), response.data)
+
+    def test_ticket_metadata_display(self):
+        """Test that ticket metadata is saved and displayed."""
+        response = self.client.post(
+            '/add',
+            data={
+                'task': '财务系统无法登录',
+                'description': '用户输入正确账号密码后仍提示登录失败',
+                'priority': 'high',
+                'requester': '王芳',
+                'assignee': '技术支持'
+            },
+            follow_redirects=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('财务系统无法登录'.encode('utf-8'), response.data)
+        self.assertIn('用户输入正确账号密码后仍提示登录失败'.encode('utf-8'), response.data)
+        self.assertIn('高 · 8小时'.encode('utf-8'), response.data)
+        self.assertIn('提交人：王芳'.encode('utf-8'), response.data)
+        self.assertIn('处理人：技术支持'.encode('utf-8'), response.data)
+        self.assertIn('SLA截止：'.encode('utf-8'), response.data)
+
+    def test_ticket_status_workflow(self):
+        """Test ticket status workflow."""
+        self.client.post(
+            '/add',
+            data={'task': '状态流转测试工单'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('状态流转测试工单',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+        # 待处理 -> 处理中
+        response = self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True
+        )
+        self.assertIn('处理中'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'in_progress')
+            self.assertEqual(completed, 0)
+
+        # 处理中 -> 已完成
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'completed'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'completed')
+            self.assertEqual(completed, 1)
+
+        # 已完成 -> 待处理
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'pending'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'pending')
+            self.assertEqual(completed, 0)
+
+    def test_sla_status_display(self):
+        """Test normal and overdue SLA display."""
+        response = self.client.post(
+            '/add',
+            data={
+                'task': 'SLA测试工单',
+                'priority': 'urgent'
+            },
+            follow_redirects=True
+        )
+
+        # 新建工单的截止时间在未来，应显示 SLA 正常
+        self.assertIn('SLA正常'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('SLA测试工单',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+            # 将截止时间设置到过去，模拟超时
+            conn.execute(
+                '''
+                UPDATE todos
+                SET sla_deadline = ?
+                WHERE id = ?
+                ''',
+                ('2000-01-01 00:00:00', ticket_id)
+            )
+            conn.commit()
+
+        response = self.client.get('/')
+
+        # 未完成且超过截止时间，应显示 SLA 已超时
+        self.assertIn(
+            'SLA已超时'.encode('utf-8'),
+            response.data
+        )
+
+    def test_ticket_search_and_filter(self):
+        """Test ticket keyword search and status filter."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '财务系统无法登录',
+                'description': '账号登录失败',
+                'requester': '王芳',
+                'assignee': '技术支持'
+            },
+            follow_redirects=True
+        )
+
+        self.client.post(
+            '/add',
+            data={
+                'task': '打印机无法使用',
+                'description': '办公室打印机没有响应',
+                'requester': '李明',
+                'assignee': '设备支持'
+            },
+            follow_redirects=True
+        )
+
+        # 按提交人搜索
+        response = self.client.get(
+            '/?q=王芳'
+        )
+        self.assertIn(
+            '财务系统无法登录'.encode('utf-8'),
+            response.data
+        )
+        self.assertNotIn(
+            '打印机无法使用'.encode('utf-8'),
+            response.data
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('打印机无法使用',)
+            ).fetchone()
+            ticket_id = row[0]
+
+        # 将第二张工单改为处理中
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True
+        )
+
+        # 按处理中状态筛选
+        response = self.client.get(
+            '/?status=in_progress'
+        )
+        self.assertIn(
+            '打印机无法使用'.encode('utf-8'),
+            response.data
+        )
+        self.assertNotIn(
+            '财务系统无法登录'.encode('utf-8'),
+            response.data
+        )
+
+    def test_full_ticket_edit(self):
+        """Test complete ticket information editing."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '原始工单标题',
+                'description': '原始问题描述',
+                'priority': 'medium',
+                'requester': '原提交人',
+                'assignee': '原处理人'
+            },
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('原始工单标题',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+        # 编辑页面能够加载并回填原数据
+        response = self.client.get(
+            f'/edit/{ticket_id}'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '编辑工单'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '原始问题描述'.encode('utf-8'),
+            response.data
+        )
+
+        # 提交完整修改
+        response = self.client.post(
+            f'/edit/{ticket_id}',
+            data={
+                'task': '更新后的工单标题',
+                'description': '更新后的问题描述',
+                'priority': 'urgent',
+                'requester': '王芳',
+                'assignee': '张伟'
+            },
+            follow_redirects=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '工单信息更新成功！'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '更新后的工单标题'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '紧急 · 4小时'.encode('utf-8'),
+            response.data
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                '''
+                SELECT task,
+                       description,
+                       priority,
+                       requester,
+                       assignee,
+                       sla_deadline
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,)
+            ).fetchone()
+
+        self.assertEqual(row[0], '更新后的工单标题')
+        self.assertEqual(row[1], '更新后的问题描述')
+        self.assertEqual(row[2], 'urgent')
+        self.assertEqual(row[3], '王芳')
+        self.assertEqual(row[4], '张伟')
+        self.assertIsNotNone(row[5])
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Please enter a task!', response.data)
+        self.assertIn('请输入工单标题！'.encode('utf-8'), response.data)
     
     def test_task_operations_workflow(self):
         """Test complete task workflow: add, edit, toggle, delete."""
@@ -92,7 +369,7 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertIn(b'Workflow Task', response.data)
         
         # Get the task ID from database
-        with sqlite3.connect('todos.db') as conn:
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
             cursor = conn.execute('SELECT id FROM todos WHERE task = ?', ('Workflow Task',))
             task_row = cursor.fetchone()
             self.assertIsNotNone(task_row)
@@ -103,14 +380,17 @@ class FlaskTasksTestCase(unittest.TestCase):
                                   data={'task': 'Updated Workflow Task'}, 
                                   follow_redirects=True)
         self.assertIn(b'Updated Workflow Task', response.data)
-        self.assertIn(b'Task updated!', response.data)
+        self.assertIn(
+            '工单信息更新成功！'.encode('utf-8'),
+            response.data
+        )
         
         # Toggle task completion
         response = self.client.get(f'/toggle/{task_id}', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         
         # Verify task is completed in database
-        with sqlite3.connect('todos.db') as conn:
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
             cursor = conn.execute('SELECT completed FROM todos WHERE id = ?', (task_id,))
             completed_row = cursor.fetchone()
             self.assertIsNotNone(completed_row)
@@ -119,7 +399,7 @@ class FlaskTasksTestCase(unittest.TestCase):
         # Delete the task
         response = self.client.get(f'/delete/{task_id}', follow_redirects=True)
         self.assertNotIn(b'Updated Workflow Task', response.data)
-        self.assertIn(b'Task deleted!', response.data)
+        self.assertIn('工单已删除！'.encode('utf-8'), response.data)
     
     def test_hierarchical_tasks(self):
         """Test parent-child task relationships."""
@@ -128,7 +408,7 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertIn(b'Parent Task', response.data)
         
         # Get parent task ID
-        with sqlite3.connect('todos.db') as conn:
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
             cursor = conn.execute('SELECT id FROM todos WHERE task = ?', ('Parent Task',))
             parent_id = cursor.fetchone()[0]
         
@@ -144,7 +424,7 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         
         # Verify both tasks are completed
-        with sqlite3.connect('todos.db') as conn:
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
             cursor = conn.execute('SELECT completed FROM todos WHERE id IN (?, ?)', 
                                 (parent_id, parent_id + 1))
             results = cursor.fetchall()
@@ -153,7 +433,7 @@ class FlaskTasksTestCase(unittest.TestCase):
     
     def test_database_structure(self):
         """Test that database has correct structure."""
-        with sqlite3.connect('todos.db') as conn:
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
             # Check table exists
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='todos'"
@@ -198,47 +478,42 @@ class BasicUITestCase(unittest.TestCase):
         
         self.original_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        
-        # Initialize test database
-        with sqlite3.connect('todos.db') as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS todos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task TEXT NOT NULL,
-                    completed BOOLEAN DEFAULT FALSE,
-                    parent_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (parent_id) REFERENCES todos (id) ON DELETE CASCADE
-                )
-            ''')
-            conn.commit()
+
+        # Initialize test database using the application schema
+        init_db()
     
     def tearDown(self):
         """Clean up after tests."""
         os.chdir(self.original_cwd)
         import shutil
         shutil.rmtree(self.test_dir)
-    
+
     def test_navbar_elements(self):
         """Test that navbar contains correct elements."""
         response = self.client.get('/')
-        self.assertIn(b'FlaskTasks', response.data)
-        self.assertIn(b'Tasks', response.data)
-        self.assertIn(b'About', response.data)
-    
+        self.assertIn(b'QuickDesk', response.data)
+        self.assertIn('工单管理'.encode('utf-8'), response.data)
+        self.assertIn('关于系统'.encode('utf-8'), response.data)
+
     def test_form_elements(self):
         """Test that form elements are present."""
         response = self.client.get('/')
         self.assertIn(b'name="task"', response.data)
-        self.assertIn(b'Add Task', response.data)
-        self.assertIn(b'placeholder="Add a new task..."', response.data)
-    
+        self.assertIn(b'name="description"', response.data)
+        self.assertIn(b'name="priority"', response.data)
+        self.assertIn(b'name="requester"', response.data)
+        self.assertIn(b'name="assignee"', response.data)
+        self.assertIn('创建工单'.encode('utf-8'), response.data)
+        self.assertIn(
+            'placeholder="请输入工单标题"'.encode('utf-8'),
+            response.data
+        )
+
     def test_footer_present(self):
         """Test that footer is present."""
         response = self.client.get('/')
-        self.assertIn(b'FlaskTasks. Built with Flask', response.data)
-    
+        self.assertIn(b'2026 QuickDesk', response.data)
+
     def test_responsive_elements(self):
         """Test that responsive CSS classes are present."""
         response = self.client.get('/')

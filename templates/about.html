@@ -1,55 +1,159 @@
 {% extends "index.html" %}
 
-{% block title %}About - FlaskTasks{% endblock %}
+{% block title %}
+关于系统 - QuickDesk
+{% endblock %}
 
 {% block content %}
 <div class="row">
-    <div class="col-lg-8 mx-auto">
-        <h1>About FlaskTasks</h1>
-        <p class="lead">A task management application built with Python Flask and SQLite.</p>
-        
-        <h3>Features</h3>
-        <ul class="list-group list-group-flush">
-            <li class="list-group-item"><i class="bi bi-check-circle text-success"></i> Add, edit, and delete tasks</li>
-            <li class="list-group-item"><i class="bi bi-toggle-on text-primary"></i> Toggle completion status</li>
-            <li class="list-group-item"><i class="bi bi-phone text-info"></i> Responsive design for all devices</li>
-            <li class="list-group-item"><i class="bi bi-database text-warning"></i> SQLite database for data persistence</li>
-            <li class="list-group-item"><i class="bi bi-keyboard text-secondary"></i> Keyboard shortcuts (Escape to cancel, Ctrl/Cmd+Enter to add)</li>
-            <li class="list-group-item"><i class="bi bi-pencil-square text-info"></i> Inline editing with click to edit</li>
-        </ul>
-        
-        <h3 class="mt-4">Technology Stack</h3>
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <h5 class="card-title">Backend</h5>
-                        <ul class="list-unstyled">
-                            <li><i class="bi bi-dot"></i> Python Flask</li>
-                            <li><i class="bi bi-dot"></i> SQLite3 Database</li>
-                        </ul>
+    <div class="col-lg-9 mx-auto">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h1 class="mb-3">
+                    <i class="bi bi-ticket-detailed"></i>
+                    关于 QuickDesk
+                </h1>
+
+                <p class="lead text-muted">
+                    QuickDesk 是一个基于 Flask 和 SQLite
+                    开发的小型企业工单与 SLA 协作管理系统。
+                </p>
+
+                <p>
+                    系统用于记录企业内部问题、分派处理人员、
+                    跟踪工单状态，并通过 SLA 截止时间帮助团队
+                    及时识别和处理超时风险。
+                </p>
+
+                <h3 class="mt-4 mb-3">核心功能</h3>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5>
+                                    <i class="bi bi-card-checklist text-primary"></i>
+                                    工单管理
+                                </h5>
+                                <ul class="mb-0">
+                                    <li>创建、编辑和删除工单</li>
+                                    <li>记录问题描述和相关人员</li>
+                                    <li>支持父工单与子任务</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5>
+                                    <i class="bi bi-arrow-repeat text-warning"></i>
+                                    状态流转
+                                </h5>
+                                <ul class="mb-0">
+                                    <li>待处理</li>
+                                    <li>处理中</li>
+                                    <li>已完成及重新打开</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5>
+                                    <i class="bi bi-alarm text-danger"></i>
+                                    SLA 管理
+                                </h5>
+                                <ul class="mb-0">
+                                    <li>根据优先级计算截止时间</li>
+                                    <li>自动判断 SLA 是否超时</li>
+                                    <li>通过颜色标记风险状态</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5>
+                                    <i class="bi bi-search text-success"></i>
+                                    查询分析
+                                </h5>
+                                <ul class="mb-0">
+                                    <li>支持关键词搜索</li>
+                                    <li>支持状态筛选</li>
+                                    <li>实时统计各状态工单数量</li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <h5 class="card-title">Frontend</h5>
-                        <ul class="list-unstyled">
-                            <li><i class="bi bi-dot"></i> Bootstrap 5</li>
-                            <li><i class="bi bi-dot"></i> Bootstrap Icons</li>
-                            <li><i class="bi bi-dot"></i> Responsive CSS</li>
-                            <li><i class="bi bi-dot"></i> Vanilla JavaScript</li>
-                        </ul>
-                    </div>
+
+                <h3 class="mt-4 mb-3">SLA 规则</h3>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>优先级</th>
+                                <th>处理时限</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="text-danger fw-bold">紧急</td>
+                                <td>4 小时</td>
+                            </tr>
+                            <tr>
+                                <td class="text-warning fw-bold">高</td>
+                                <td>8 小时</td>
+                            </tr>
+                            <tr>
+                                <td class="text-primary fw-bold">中</td>
+                                <td>24 小时</td>
+                            </tr>
+                            <tr>
+                                <td class="text-secondary fw-bold">低</td>
+                                <td>72 小时</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="mt-4 mb-3">技术实现</h3>
+
+                <div class="alert alert-light border">
+                    <strong>后端：</strong>
+                    Python、Flask、SQLite、Jinja2
+                    <br>
+                    <strong>前端：</strong>
+                    HTML、CSS、Bootstrap 5、JavaScript
+                    <br>
+                    <strong>测试与版本管理：</strong>
+                    Pytest、Git、GitHub
+                </div>
+
+                <h3 class="mt-4 mb-3">项目说明</h3>
+
+                <p>
+                    本项目基于开源项目 FlaskTasks 进行二次开发，
+                    将普通任务管理功能改造成面向企业场景的工单系统，
+                    并新增工单业务字段、状态流转、SLA 管理、
+                    搜索筛选、中文界面和自动化测试。
+                </p>
+
+                <div class="mt-4">
+                    <a href="{{ url_for('index') }}"
+                       class="btn btn-primary">
+                        <i class="bi bi-arrow-left"></i>
+                        返回工单管理
+                    </a>
                 </div>
             </div>
-        </div>
-        
-        <div class="mt-4">
-            <a href="/" class="btn btn-primary">
-                <i class="bi bi-arrow-left"></i> Back to Tasks
-            </a>
         </div>
     </div>
 </div>

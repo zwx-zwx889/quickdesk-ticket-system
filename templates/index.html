@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}FlaskTasks{% endblock %}</title>
+    <title>{% block title %}QuickDesk工单管理系统{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
@@ -11,17 +11,17 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <a class="navbar-brand" href="/"><i class="bi bi-check-square me-2"></i>FlaskTasks</a>
+           <a class="navbar-brand" href="/"><i class="bi bi-ticket-detailed me-2"></i>QuickDesk</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/">Tasks</a>
+                        <a class="nav-link" href="/">工单管理</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/about">About</a>
+                        <a class="nav-link" href="/about">关于系统</a>
                     </li>
                 </ul>
             </div>
@@ -44,26 +44,162 @@
         <div class="row">
             <div class="col-lg-8 mx-auto">
                 <div class="todo-header mb-4">
-                    <h1 class="text-center mb-4"><i class="bi bi-list-check"></i> FlaskTasks</h1>
+                    <h1 class="text-center mb-4"><i class="bi bi-ticket-detailed"></i> QuickDesk工单协作管理系统</h1>
                     
-                    <form action="{{ url_for('add_todo') }}" method="post" class="mb-4">
-                        <div class="input-group">
-                            <input type="text" class="form-control" name="task" placeholder="Add a new task..." required>
-                            <button class="btn btn-primary" type="submit">
-                                <i class="bi bi-plus-lg"></i> Add Task
-                            </button>
-                        </div>
+                    <form action="{{ url_for('add_todo') }}"
+                        method="post"
+                        class="card shadow-sm mb-4">
+                      <div class="card-body">
+                          <h5 class="card-title mb-3">
+                              <i class="bi bi-plus-circle"></i>
+            创建新工单
+                          </h5>
+                          <div class="row g-3">
+                              <div class="col-12">
+                                  <label for="task" class="form-label">
+                    工单标题
+                                  </label>
+                                  <input type="text"
+                                         class="form-control"
+                                         id="task"
+                                         name="task"
+                                         placeholder="请输入工单标题"
+                                         required>
+                              </div>
+
+                              <div class="col-12">
+                                  <label for="description" class="form-label">
+                    问题描述
+                                  </label>
+                                  <textarea class="form-control"
+                                            id="description"
+                                            name="description"
+                                            rows="3"
+                                            placeholder="请描述问题现象和具体需求"></textarea>
+                              </div>
+
+                              <div class="col-md-4">
+                                  <label for="priority" class="form-label">
+                    优先级
+                                  </label>
+                                  <select class="form-select"
+                                          id="priority"
+                                          name="priority">
+                                      <option value="low">低（72小时）</option>
+                                      <option value="medium" selected>
+                        中（24小时）
+                                      </option>
+                                      <option value="high">高（8小时）</option>
+                                      <option value="urgent">紧急（4小时）</option>
+                                  </select>
+                              </div>
+
+                              <div class="col-md-4">
+                                  <label for="requester" class="form-label">
+                    提交人
+                                  </label>
+                                  <input type="text"
+                                         class="form-control"
+                                         id="requester"
+                                         name="requester"
+                                         placeholder="例如：张三">
+                              </div>
+
+                              <div class="col-md-4">
+                                  <label for="assignee" class="form-label">
+                    处理人
+                                  </label>
+                                  <input type="text"
+                       class="form-control"
+                       id="assignee"
+                       name="assignee"
+                       placeholder="例如：技术支持">
+                              </div>
+
+                              <div class="col-12 text-end">
+                                  <button class="btn btn-primary px-4"
+                                          type="submit">
+                                      <i class="bi bi-plus-lg"></i>
+                    创建工单
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
                     </form>
                 </div>
+
+            <!-- 工单搜索与筛选 -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="get"
+              action="{{ url_for('index') }}"
+              class="row g-2 align-items-end">
+
+            <div class="col-md-6">
+                <label for="q" class="form-label">
+                    搜索工单
+                </label>
+                <input type="text"
+                       class="form-control"
+                       id="q"
+                       name="q"
+                       value="{{ search_query }}"
+                       placeholder="搜索标题、描述、提交人或处理人">
+            </div>
+
+            <div class="col-md-3">
+                <label for="status-filter" class="form-label">
+                    工单状态
+                </label>
+                <select class="form-select"
+                        id="status-filter"
+                        name="status">
+                    <option value="all"
+                        {{ 'selected' if status_filter == 'all' else '' }}>
+                        全部状态
+                    </option>
+                    <option value="pending"
+                        {{ 'selected' if status_filter == 'pending' else '' }}>
+                        待处理
+                    </option>
+                    <option value="in_progress"
+                        {{ 'selected' if status_filter == 'in_progress' else '' }}>
+                        处理中
+                    </option>
+                    <option value="completed"
+                        {{ 'selected' if status_filter == 'completed' else '' }}>
+                        已完成
+                    </option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <button type="submit"
+                        class="btn btn-primary me-1">
+                    <i class="bi bi-search"></i>
+                    查询
+                </button>
+
+                <a href="{{ url_for('index') }}"
+                   class="btn btn-outline-secondary">
+                    重置
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
 
                 <div class="todos-container">
                     {% if todos %}
                         <div class="todo-stats mb-3">
                             <small class="text-muted">
-                                Total: {{ todos|length }} | 
-                                Pending: {{ todos|selectattr('completed', 'equalto', 0)|list|length }} | 
-                                Completed: {{ todos|selectattr('completed', 'equalto', 1)|list|length }}
+                                工单总数：{{ all_todos|length }} |
+                                待处理：{{ all_todos|selectattr('status', 'equalto', 'pending')|list|length }} |
+                                处理中：{{ all_todos|selectattr('status', 'equalto', 'in_progress')|list|length }} |
+                                已完成：{{ all_todos|selectattr('status', 'equalto', 'completed')|list|length }} |
+                                当前结果：{{ todos|length }}
                             </small>
+                        </div>
                         </div>
 
                         {% for todo in todos %}
@@ -99,6 +235,99 @@
                                                     <span class="badge bg-secondary ms-2">{{ todo.child_count }} subtask{{ 's' if todo.child_count != 1 else '' }}</span>
                                                 {% endif %}
                                             </div>
+                                            <!-- 工单详细信息 -->
+                                                {% if todo.description %}
+                                                    <p class="text-muted small mt-2 mb-2">
+                                                        {{ todo.description }}
+                                                    </p>
+                                                {% endif %}
+
+                                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                                {% if todo.priority == 'urgent' %}
+                                                    <span class="badge bg-danger">紧急 · 4小时</span>
+                                                {% elif todo.priority == 'high' %}
+                                                    <span class="badge bg-warning text-dark">高 · 8小时</span>
+                                                {% elif todo.priority == 'medium' %}
+                                                    <span class="badge bg-primary">中 · 24小时</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">低 · 72小时</span>
+                                                {% endif %}
+
+                                                {% if todo.completed or todo.status == 'completed' %}
+    <span class="badge bg-success">已完成</span>
+{% elif todo.status == 'in_progress' %}
+    <span class="badge bg-warning text-dark">处理中</span>
+{% else %}
+    <span class="badge bg-info text-dark">待处理</span>
+{% endif %}
+
+<form action="{{ url_for('update_status', todo_id=todo.id) }}"
+      method="post"
+      class="d-inline">
+
+    {% if todo.completed or todo.status == 'completed' %}
+        <input type="hidden" name="status" value="pending">
+        <button type="submit"
+                class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-counterclockwise"></i>
+            重新打开
+        </button>
+
+    {% elif todo.status == 'in_progress' %}
+        <input type="hidden" name="status" value="completed">
+        <button type="submit"
+                class="btn btn-sm btn-outline-success">
+            <i class="bi bi-check-circle"></i>
+            完成工单
+        </button>
+
+    {% else %}
+        <input type="hidden" name="status" value="in_progress">
+        <button type="submit"
+                class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-play-circle"></i>
+            开始处理
+        </button>
+    {% endif %}
+</form>
+                                                </div>
+
+                                                <div class="small text-muted mt-2">
+                                                    {% if todo.requester %}
+                                                        <span class="me-3">
+                                                            <i class="bi bi-person"></i>
+                                                            提交人：{{ todo.requester }}
+                                                        </span>
+                                                    {% endif %}
+
+                                                    {% if todo.assignee %}
+                                                        <span class="me-3">
+                                                            <i class="bi bi-person-check"></i>
+                                                            处理人：{{ todo.assignee }}
+                                                        </span>
+                                                    {% endif %}
+
+                                                    {% if todo.sla_deadline %}
+                                                        <span>
+                                                            <i class="bi bi-alarm"></i>
+                                                            SLA截止：{{ todo.sla_deadline[:16] }}
+                                                        </span>
+
+                                                        {% if not todo.completed %}
+                                                            {% if todo.sla_deadline < current_time %}
+                                                                <span class="badge bg-danger ms-2">
+                                                                    <i class="bi bi-exclamation-triangle"></i>
+                                                                    SLA已超时
+                                                                </span>
+                                                            {% else %}
+                                                                <span class="badge bg-success ms-2">
+                                                                    <i class="bi bi-shield-check"></i>
+                                                                    SLA正常
+                                                                </span>
+                                                            {% endif %}
+                                                        {% endif %}
+                                                    {% endif %}
+                                                </div>
                                             <div class="edit-form" style="display: none;">
                                                 <form action="{{ url_for('edit_todo', todo_id=todo.id) }}" method="post" class="d-flex">
                                                     <input type="text" class="form-control form-control-sm me-2" 
@@ -128,9 +357,11 @@
                                                     <i class="bi bi-check-all"></i>
                                                 </a>
                                             {% endif %}
-                                            <button class="btn btn-sm btn-outline-secondary me-1 edit-btn">
+                                            <a href="{{ url_for('edit_todo', todo_id=todo.id) }}"
+                                               class="btn btn-sm btn-outline-secondary me-1"
+                                               title="编辑工单">
                                                 <i class="bi bi-pencil"></i>
-                                            </button>
+                                            </a>
                                             <a href="{{ url_for('delete_todo', todo_id=todo.id) }}" 
                                                class="btn btn-sm btn-outline-danger"
                                                onclick="return confirm('Are you sure you want to delete this todo{{ ' and all its subtasks' if todo.child_count > 0 else '' }}?')">
@@ -174,8 +405,8 @@
                     {% else %}
                         <div class="text-center py-5">
                             <i class="bi bi-clipboard-x display-1 text-muted"></i>
-                            <h3 class="text-muted mt-3">No tasks yet!</h3>
-                            <p class="text-muted">Add your first task above to get started.</p>
+                            <h3 class="text-muted mt-3">暂无工单</h3>
+                            <p class="text-muted">请在上方创建第一张工单。</p>
                         </div>
                     {% endif %}
                 </div>
@@ -186,7 +417,7 @@
 
     <footer class="bg-dark text-light py-4 mt-5">
         <div class="container text-center">
-            <p>&copy; 2024 FlaskTasks. Built with Flask, SQLite, and Bootstrap.</p>
+            <p>&copy; 2026 QuickDesk 企业工单与SLA协作管理系统</p>
         </div>
     </footer>
 

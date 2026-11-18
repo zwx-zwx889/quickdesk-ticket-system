@@ -9,6 +9,7 @@ venv/
 
 # Application database
 todos.db
+quickdesk.db
 *.db-journal
 
 # Python cache
