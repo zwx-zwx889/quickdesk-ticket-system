@@ -133,9 +133,11 @@
                         <div class="todo-stats mb-3">
                             <small class="text-muted">
                                 工单总数：{{ todos|length }} |
-                                待处理：{{ todos|selectattr('completed', 'equalto', 0)|list|length }} |
-                                已完成：{{ todos|selectattr('completed', 'equalto', 1)|list|length }}
+                                待处理：{{ todos|selectattr('status', 'equalto', 'pending')|list|length }} |
+                                处理中：{{ todos|selectattr('status', 'equalto', 'in_progress')|list|length }} |
+                                已完成：{{ todos|selectattr('status', 'equalto', 'completed')|list|length }}
                             </small>
+                        </div>
                         </div>
 
                         {% for todo in todos %}

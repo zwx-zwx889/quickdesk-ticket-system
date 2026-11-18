@@ -16,7 +16,7 @@ def init_db():
             task TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             priority TEXT NOT NULL DEFAULT 'medium',
-            status TEXT NOT NULL DEFAULT 'new',
+            status TEXT NOT NULL DEFAULT 'pending',
             requester TEXT NOT NULL DEFAULT '',
             assignee TEXT NOT NULL DEFAULT '',
             sla_deadline TIMESTAMP,
@@ -37,7 +37,10 @@ def init_db():
             )
         except sqlite3.OperationalError:
             pass
-
+            # 将旧版本的 new 状态迁移为 pending
+        conn.execute(
+            "UPDATE todos SET status = 'pending' WHERE status = 'new'"
+        )
         conn.commit()
 
 
@@ -111,7 +114,7 @@ def add_todo():
                     task,
                     description,
                     priority,
-                    'new',
+                    'pending',
                     requester,
                     assignee,
                     sla_deadline,
@@ -129,11 +132,29 @@ def add_todo():
 @app.route('/toggle/<int:todo_id>')
 def toggle_todo(todo_id):
     with closing(sqlite3.connect(DATABASE)) as conn:
-        conn.execute(
-            'UPDATE todos SET completed = NOT completed, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        current = conn.execute(
+            'SELECT completed FROM todos WHERE id = ?',
             (todo_id,)
-        )
-        conn.commit()
+        ).fetchone()
+
+        if current:
+            new_completed = 0 if current[0] else 1
+            new_status = (
+                'completed' if new_completed else 'pending'
+            )
+
+            conn.execute(
+                '''
+                UPDATE todos
+                SET completed = ?,
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                ''',
+                (new_completed, new_status, todo_id)
+            )
+            conn.commit()
+
     return redirect(url_for('index'))
 
 @app.route('/status/<int:todo_id>', methods=['POST'])
@@ -183,16 +204,34 @@ def delete_todo(todo_id):
 @app.route('/toggle_with_children/<int:todo_id>')
 def toggle_todo_with_children(todo_id):
     with closing(sqlite3.connect(DATABASE)) as conn:
-        # Get the current completion status
-        current = conn.execute('SELECT completed FROM todos WHERE id = ?', (todo_id,)).fetchone()
+        current = conn.execute(
+            'SELECT completed FROM todos WHERE id = ?',
+            (todo_id,)
+        ).fetchone()
+
         if current:
-            new_status = not current[0]
-            # Update parent and all children
+            new_completed = 0 if current[0] else 1
+            new_status = (
+                'completed' if new_completed else 'pending'
+            )
+
             conn.execute(
-                'UPDATE todos SET completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? OR parent_id = ?',
-                (new_status, todo_id, todo_id)
+                '''
+                UPDATE todos
+                SET completed = ?,
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? OR parent_id = ?
+                ''',
+                (
+                    new_completed,
+                    new_status,
+                    todo_id,
+                    todo_id
+                )
             )
             conn.commit()
+
     return redirect(url_for('index'))
 
 @app.route('/edit/<int:todo_id>', methods=['POST'])
