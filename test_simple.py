@@ -89,6 +89,68 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertIn('处理人：技术支持'.encode('utf-8'), response.data)
         self.assertIn('SLA截止：'.encode('utf-8'), response.data)
 
+    def test_ticket_status_workflow(self):
+        """Test ticket status workflow."""
+        self.client.post(
+            '/add',
+            data={'task': '状态流转测试工单'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            row = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('状态流转测试工单',)
+            ).fetchone()
+            self.assertIsNotNone(row)
+            ticket_id = row[0]
+
+        # 待处理 -> 处理中
+        response = self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True
+        )
+        self.assertIn('处理中'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'in_progress')
+            self.assertEqual(completed, 0)
+
+        # 处理中 -> 已完成
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'completed'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'completed')
+            self.assertEqual(completed, 1)
+
+        # 已完成 -> 待处理
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'pending'},
+            follow_redirects=True
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status, completed = conn.execute(
+                'SELECT status, completed FROM todos WHERE id = ?',
+                (ticket_id,)
+            ).fetchone()
+            self.assertEqual(status, 'pending')
+            self.assertEqual(completed, 0)
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)

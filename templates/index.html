@@ -189,11 +189,43 @@
                                                     <span class="badge bg-secondary">低 · 72小时</span>
                                                 {% endif %}
 
-                                                {% if todo.completed %}
-                                                    <span class="badge bg-success">已完成</span>
-                                                {% else %}
-                                                    <span class="badge bg-info text-dark">待处理</span>
-                                                {% endif %}
+                                                {% if todo.completed or todo.status == 'completed' %}
+    <span class="badge bg-success">已完成</span>
+{% elif todo.status == 'in_progress' %}
+    <span class="badge bg-warning text-dark">处理中</span>
+{% else %}
+    <span class="badge bg-info text-dark">待处理</span>
+{% endif %}
+
+<form action="{{ url_for('update_status', todo_id=todo.id) }}"
+      method="post"
+      class="d-inline">
+
+    {% if todo.completed or todo.status == 'completed' %}
+        <input type="hidden" name="status" value="pending">
+        <button type="submit"
+                class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-counterclockwise"></i>
+            重新打开
+        </button>
+
+    {% elif todo.status == 'in_progress' %}
+        <input type="hidden" name="status" value="completed">
+        <button type="submit"
+                class="btn btn-sm btn-outline-success">
+            <i class="bi bi-check-circle"></i>
+            完成工单
+        </button>
+
+    {% else %}
+        <input type="hidden" name="status" value="in_progress">
+        <button type="submit"
+                class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-play-circle"></i>
+            开始处理
+        </button>
+    {% endif %}
+</form>
                                                 </div>
 
                                                 <div class="small text-muted mt-2">

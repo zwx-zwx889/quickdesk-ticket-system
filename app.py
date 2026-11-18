@@ -136,6 +136,41 @@ def toggle_todo(todo_id):
         conn.commit()
     return redirect(url_for('index'))
 
+@app.route('/status/<int:todo_id>', methods=['POST'])
+def update_status(todo_id):
+    new_status = request.form.get('status', '').strip()
+
+    allowed_statuses = {
+        'pending': '待处理',
+        'in_progress': '处理中',
+        'completed': '已完成'
+    }
+
+    if new_status not in allowed_statuses:
+        flash('无效的工单状态！', 'error')
+        return redirect(url_for('index'))
+
+    completed = 1 if new_status == 'completed' else 0
+
+    with closing(sqlite3.connect(DATABASE)) as conn:
+        conn.execute(
+            '''
+            UPDATE todos
+            SET status = ?,
+                completed = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            ''',
+            (new_status, completed, todo_id)
+        )
+        conn.commit()
+
+    flash(
+        f'工单状态已更新为“{allowed_statuses[new_status]}”！',
+        'success'
+    )
+    return redirect(url_for('index'))
+
 @app.route('/delete/<int:todo_id>')
 def delete_todo(todo_id):
     with closing(sqlite3.connect(DATABASE)) as conn:
