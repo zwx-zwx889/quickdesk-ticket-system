@@ -1,3 +1,4 @@
+from contextlib import closing
 from flask import Flask, render_template, request, redirect, url_for, flash
 import sqlite3
 from datetime import datetime
@@ -7,7 +8,7 @@ app.secret_key = 'your-secret-key-here'
 DATABASE = 'quickdesk.db'
 
 def init_db():
-    with sqlite3.connect(DATABASE) as conn:
+    with closing(sqlite3.connect(DATABASE)) as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS todos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +36,7 @@ def init_db():
         conn.commit()
 
 def get_todos_hierarchical():
-    with sqlite3.connect(DATABASE) as conn:
+    with closing(sqlite3.connect(DATABASE)) as conn:
         conn.row_factory = sqlite3.Row
         
         # Get all todos with their children count
@@ -70,20 +71,20 @@ def add_todo():
     parent_id = request.form.get('parent_id', None)
     
     if task:
-        with sqlite3.connect(DATABASE) as conn:
+        with closing(sqlite3.connect(DATABASE)) as conn:
             if parent_id:
                 conn.execute('INSERT INTO todos (task, parent_id) VALUES (?, ?)', (task, parent_id))
             else:
                 conn.execute('INSERT INTO todos (task) VALUES (?)', (task,))
             conn.commit()
-        flash('Task added successfully!', 'success')
+        flash('工单创建成功！', 'success')
     else:
-        flash('Please enter a task!', 'error')
+        flash('请输入工单标题！', 'error')
     return redirect(url_for('index'))
 
 @app.route('/toggle/<int:todo_id>')
 def toggle_todo(todo_id):
-    with sqlite3.connect(DATABASE) as conn:
+    with closing(sqlite3.connect(DATABASE)) as conn:
         conn.execute(
             'UPDATE todos SET completed = NOT completed, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             (todo_id,)
@@ -93,16 +94,16 @@ def toggle_todo(todo_id):
 
 @app.route('/delete/<int:todo_id>')
 def delete_todo(todo_id):
-    with sqlite3.connect(DATABASE) as conn:
+    with closing(sqlite3.connect(DATABASE)) as conn:
         # Delete the todo and its children (CASCADE will handle children)
         conn.execute('DELETE FROM todos WHERE id = ?', (todo_id,))
         conn.commit()
-    flash('Task deleted!', 'info')
+    flash('工单已删除！', 'info')
     return redirect(url_for('index'))
 
 @app.route('/toggle_with_children/<int:todo_id>')
 def toggle_todo_with_children(todo_id):
-    with sqlite3.connect(DATABASE) as conn:
+    with closing(sqlite3.connect(DATABASE)) as conn:
         # Get the current completion status
         current = conn.execute('SELECT completed FROM todos WHERE id = ?', (todo_id,)).fetchone()
         if current:
@@ -119,13 +120,13 @@ def toggle_todo_with_children(todo_id):
 def edit_todo(todo_id):
     new_task = request.form.get('task', '').strip()
     if new_task:
-        with sqlite3.connect(DATABASE) as conn:
+        with closing(sqlite3.connect(DATABASE)) as conn:
             conn.execute(
                 'UPDATE todos SET task = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
                 (new_task, todo_id)
             )
             conn.commit()
-        flash('Task updated!', 'success')
+        flash('工单更新成功！', 'success')
     return redirect(url_for('index'))
 
 @app.route('/about')
