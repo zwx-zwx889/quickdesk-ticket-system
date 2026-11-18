@@ -51,13 +51,28 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'QuickDesk', response.data)
         self.assertIn('暂无工单'.encode('utf-8'), response.data)
-    
-    def test_about_page_loads(self):
-        """Test that the about page loads successfully."""
+
+    def test_about_page(self):
+        """Test QuickDesk about page loads."""
         response = self.client.get('/about')
+
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'About FlaskTasks', response.data)
-        self.assertIn(b'task management application', response.data)
+        self.assertIn(
+            '关于 QuickDesk'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '核心功能'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            'SLA 规则'.encode('utf-8'),
+            response.data
+        )
+        self.assertIn(
+            '项目说明'.encode('utf-8'),
+            response.data
+        )
     
     def test_add_task_success(self):
         """Test adding a task successfully."""
