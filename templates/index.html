@@ -171,6 +171,53 @@
                                                     <span class="badge bg-secondary ms-2">{{ todo.child_count }} subtask{{ 's' if todo.child_count != 1 else '' }}</span>
                                                 {% endif %}
                                             </div>
+                                            <!-- 工单详细信息 -->
+                                                {% if todo.description %}
+                                                    <p class="text-muted small mt-2 mb-2">
+                                                        {{ todo.description }}
+                                                    </p>
+                                                {% endif %}
+
+                                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                                {% if todo.priority == 'urgent' %}
+                                                    <span class="badge bg-danger">紧急 · 4小时</span>
+                                                {% elif todo.priority == 'high' %}
+                                                    <span class="badge bg-warning text-dark">高 · 8小时</span>
+                                                {% elif todo.priority == 'medium' %}
+                                                    <span class="badge bg-primary">中 · 24小时</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">低 · 72小时</span>
+                                                {% endif %}
+
+                                                {% if todo.completed %}
+                                                    <span class="badge bg-success">已完成</span>
+                                                {% else %}
+                                                    <span class="badge bg-info text-dark">待处理</span>
+                                                {% endif %}
+                                                </div>
+
+                                                <div class="small text-muted mt-2">
+                                                    {% if todo.requester %}
+                                                        <span class="me-3">
+                                                            <i class="bi bi-person"></i>
+                                                            提交人：{{ todo.requester }}
+                                                        </span>
+                                                    {% endif %}
+
+                                                    {% if todo.assignee %}
+                                                        <span class="me-3">
+                                                            <i class="bi bi-person-check"></i>
+                                                            处理人：{{ todo.assignee }}
+                                                        </span>
+                                                    {% endif %}
+
+                                                    {% if todo.sla_deadline %}
+                                                        <span>
+                                                            <i class="bi bi-alarm"></i>
+                                                            SLA截止：{{ todo.sla_deadline[:16] }}
+                                                        </span>
+                                                    {% endif %}
+                                                </div>
                                             <div class="edit-form" style="display: none;">
                                                 <form action="{{ url_for('edit_todo', todo_id=todo.id) }}" method="post" class="d-flex">
                                                     <input type="text" class="form-control form-control-sm me-2" 

@@ -66,7 +66,29 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Test Task', response.data)
         self.assertIn('工单创建成功！'.encode('utf-8'), response.data)
-    
+
+    def test_ticket_metadata_display(self):
+        """Test that ticket metadata is saved and displayed."""
+        response = self.client.post(
+            '/add',
+            data={
+                'task': '财务系统无法登录',
+                'description': '用户输入正确账号密码后仍提示登录失败',
+                'priority': 'high',
+                'requester': '王芳',
+                'assignee': '技术支持'
+            },
+            follow_redirects=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('财务系统无法登录'.encode('utf-8'), response.data)
+        self.assertIn('用户输入正确账号密码后仍提示登录失败'.encode('utf-8'), response.data)
+        self.assertIn('高 · 8小时'.encode('utf-8'), response.data)
+        self.assertIn('提交人：王芳'.encode('utf-8'), response.data)
+        self.assertIn('处理人：技术支持'.encode('utf-8'), response.data)
+        self.assertIn('SLA截止：'.encode('utf-8'), response.data)
+
     def test_add_empty_task_fails(self):
         """Test that adding empty task shows error."""
         response = self.client.post('/add', data={'task': ''}, follow_redirects=True)
