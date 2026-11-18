@@ -29,3 +29,6 @@ htmlcov/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Course submission documents containing personal information
+docs/02-summary/
