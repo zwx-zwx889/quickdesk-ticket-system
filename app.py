@@ -8,6 +8,8 @@ from flask import (
     flash,
     g,
 )
+from quickdesk.transfers import transfers_bp
+from quickdesk.audit import record_ticket_action
 from datetime import datetime
 from quickdesk.db import connect_db, init_db
 from quickdesk.sla import (
@@ -29,18 +31,27 @@ app.secret_key = os.getenv(
 )
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
+app.register_blueprint(transfers_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:
         
         # Get all todos with their children count
         todos = conn.execute('''
-            SELECT t.*, 
-                   COUNT(c.id) as child_count,
-                   COALESCE(p.task, '') as parent_task
+            SELECT t.*,
+                   COUNT(c.id) AS child_count,
+                   COALESCE(p.task, '') AS parent_task,
+                   tr.id AS pending_transfer_id,
+                   tr.requested_department AS transfer_requested_department,
+                   tr.reason AS transfer_reason
             FROM todos t
-            LEFT JOIN todos c ON t.id = c.parent_id
-            LEFT JOIN todos p ON t.parent_id = p.id
+            LEFT JOIN todos c
+                   ON t.id = c.parent_id
+            LEFT JOIN todos p
+                   ON t.parent_id = p.id
+            LEFT JOIN transfer_requests tr
+                   ON tr.todo_id = t.id
+                  AND tr.status = 'pending'
             GROUP BY t.id
             ORDER BY 
                 COALESCE(t.parent_id, t.id),
@@ -178,15 +189,21 @@ def index():
 
     search_query = request.args.get('q', '').strip()
     status_filter = request.args.get('status', 'all').strip()
+    default_assignment_filter = (
+        'unassigned'
+        if g.user['role'] == 'admin'
+        else 'all'
+    )
+
     assignment_filter = request.args.get(
         'assignment',
-        'all',
+        default_assignment_filter,
     ).strip()
 
     allowed_assignment_filters = {
-        'all',
         'unassigned',
         'assigned',
+        'transfers',
     }
 
     if (
@@ -204,6 +221,19 @@ def index():
 
     if status_filter not in allowed_statuses:
         status_filter = 'all'
+
+    unassigned_count = len([
+        todo for todo in all_todos
+        if todo['assignee_id'] is None
+    ])
+
+    assigned_count = len([
+        todo for todo in all_todos
+        if todo['assignee_id'] is not None
+    ])
+
+    pending_transfer_requests = []
+    transfer_count = 0
 
     todos = all_todos
 
@@ -235,25 +265,81 @@ def index():
             todo for todo in todos
             if todo['assignee_id'] is not None
         ]
+    elif assignment_filter == 'transfers':
+        todos = []
 
     assignee_users = []
+    transfer_departments = []
 
+    # 管理员分派工单时使用完整处理人名单
     if g.user['role'] == 'admin':
         with closing(connect_db()) as conn:
             assignee_users = conn.execute(
                 '''
-                SELECT id,
-                       username,
-                       display_name,
-                       department,
-                       skills,
-                       max_active_tickets
+                SELECT u.id,
+                       u.username,
+                       u.display_name,
+                       u.department,
+                       u.skills,
+                       u.max_active_tickets,
+                       SUM(
+                           CASE
+                               WHEN t.status != 'completed'
+                               THEN 1
+                               ELSE 0
+                           END
+                       ) AS active_ticket_count
+                FROM users u
+                LEFT JOIN todos t
+                       ON t.assignee_id = u.id
+                WHERE u.role = 'assignee'
+                  AND u.active = 1
+                GROUP BY u.id
+                ORDER BY u.department,
+                         active_ticket_count,
+                         u.display_name
+                '''
+            ).fetchall()
+
+            pending_transfer_requests = conn.execute(
+                '''
+                SELECT tr.*,
+                       t.task AS ticket_title,
+                       t.status AS ticket_status,
+                       t.priority AS ticket_priority,
+                       t.assignee AS current_assignee,
+                       t.assignee_id AS current_assignee_id,
+                       requester.display_name AS requested_by_name,
+                       requester.department AS requested_by_department
+                FROM transfer_requests tr
+                JOIN todos t
+                     ON t.id = tr.todo_id
+                JOIN users requester
+                     ON requester.id = tr.requested_by_id
+                WHERE tr.status = 'pending'
+                ORDER BY tr.created_at ASC,
+                         tr.id ASC
+                '''
+            ).fetchall()
+
+            transfer_count = len(
+                pending_transfer_requests
+            )
+
+    # 处理人申请转交时使用可选目标部门
+    if g.user['role'] == 'assignee':
+        with closing(connect_db()) as conn:
+            transfer_departments = conn.execute(
+                '''
+                SELECT DISTINCT department
                 FROM users
                 WHERE role = 'assignee'
                   AND active = 1
-                ORDER BY department, display_name
+                  AND department != ''
+                ORDER BY department
                 '''
             ).fetchall()
+
 
     current_time = datetime.now().strftime(
         '%Y-%m-%d %H:%M:%S'
@@ -272,6 +358,11 @@ def index():
         can_edit_ticket=can_edit_ticket,
         can_process_ticket=can_process_ticket,
         can_delete_ticket=can_delete_ticket,
+        transfer_departments=transfer_departments,
+        unassigned_count=unassigned_count,
+        assigned_count=assigned_count,
+        pending_transfer_requests=pending_transfer_requests,
+        transfer_count=transfer_count,
     )
 
 @app.route('/add', methods=['POST'])
@@ -469,8 +560,16 @@ def assign_ticket(todo_id):
             )
             return redirect(url_for('index'))
 
+        old_assignee = todo['assignee'] or '未分派'
+        old_assignee_id = todo['assignee_id']
+
+        # 取消现有分派
         if not assignee_id_text:
-            conn.execute(
+            if old_assignee_id is None:
+                flash('该工单当前尚未分派！', 'info')
+                return redirect(url_for('index'))
+
+            cursor = conn.execute(
                 '''
                 UPDATE todos
                 SET assignee = '',
@@ -479,8 +578,64 @@ def assign_ticket(todo_id):
                     completed = 0,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
+                  AND assignee_id IS ?
                 ''',
-                (todo_id,),
+                (
+                    todo_id,
+                    old_assignee_id,
+                ),
+            )
+
+            if cursor.rowcount != 1:
+                conn.rollback()
+                flash(
+                    '该工单刚刚已被其他管理员修改，请刷新后重试！',
+                    'error',
+                )
+                return redirect(url_for('index'))
+
+            conn.execute(
+                '''
+                UPDATE transfer_requests
+                SET status = 'cancelled',
+                    reviewed_by_id = ?,
+                    decision_note = '管理员取消分派，原转交申请自动取消',
+                    reviewed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE todo_id = ?
+                  AND status = 'pending'
+                ''',
+                (
+                    g.user['id'],
+                    todo_id,
+                ),
+            )
+
+            conn.execute(
+                '''
+                UPDATE transfer_requests
+                SET status = 'cancelled',
+                    reviewed_by_id = ?,
+                    decision_note = '管理员重新分派工单，原转交申请自动取消',
+                    reviewed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE todo_id = ?
+                  AND status = 'pending'
+                ''',
+                (
+                    g.user['id'],
+                    todo_id,
+                ),
+            )
+
+            record_ticket_action(
+                conn,
+                todo,
+                g.user,
+                'unassigned',
+                old_value=old_assignee,
+                new_value='未分派',
+                details='管理员取消工单分派',
             )
             conn.commit()
 
@@ -508,7 +663,20 @@ def assign_ticket(todo_id):
             flash('未找到可用的处理人账号！', 'error')
             return redirect(url_for('index'))
 
-        conn.execute(
+        if old_assignee_id == assignee['id']:
+            flash(
+                f'该工单已经分派给“{assignee["display_name"]}”！',
+                'info',
+            )
+            return redirect(url_for('index'))
+
+        action = (
+            'assigned'
+            if old_assignee_id is None
+            else 'reassigned'
+        )
+
+        cursor = conn.execute(
             '''
             UPDATE todos
             SET assignee = ?,
@@ -517,21 +685,176 @@ def assign_ticket(todo_id):
                 completed = 0,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
+              AND assignee_id IS ?
             ''',
             (
                 assignee['display_name'],
                 assignee['id'],
                 todo_id,
+                old_assignee_id,
+            ),
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            flash(
+                '该工单刚刚已被其他管理员分派，请刷新后查看！',
+                'error',
+            )
+            return redirect(url_for('index'))
+
+        record_ticket_action(
+            conn,
+            todo,
+            g.user,
+            action,
+            old_value=old_assignee,
+            new_value=assignee['display_name'],
+            details=(
+                '管理员首次分派工单'
+                if action == 'assigned'
+                else '管理员重新分派工单'
             ),
         )
         conn.commit()
 
+    action_text = (
+        '分派'
+        if action == 'assigned'
+        else '重新分派'
+    )
+
     flash(
-        f'工单已分派给“{assignee["display_name"]}”！',
+        f'工单已{action_text}给“{assignee["display_name"]}”！',
         'success',
     )
     return redirect(url_for('index'))
 
+@app.route(
+    '/transfer-request/<int:todo_id>',
+    methods=['POST'],
+)
+@login_required
+@roles_required('assignee')
+def request_ticket_transfer(todo_id):
+    reason = request.form.get(
+        'reason',
+        '',
+    ).strip()
+
+    requested_department = request.form.get(
+        'requested_department',
+        '',
+    ).strip()
+
+    if len(reason) < 3:
+        flash('请填写至少3个字的转交原因！', 'error')
+        return redirect(url_for('index'))
+
+    if len(reason) > 500:
+        flash('转交原因不能超过500个字！', 'error')
+        return redirect(url_for('index'))
+
+    with closing(connect_db()) as conn:
+        todo = conn.execute(
+            'SELECT * FROM todos WHERE id = ?',
+            (todo_id,),
+        ).fetchone()
+
+        if todo is None:
+            flash('未找到指定工单！', 'error')
+            return redirect(url_for('index'))
+
+        if todo['status'] == 'completed':
+            flash('已完成工单不能申请转交！', 'error')
+            return redirect(url_for('index'))
+
+        if todo['assignee_id'] != g.user['id']:
+            flash('你只能申请转交自己的工单！', 'error')
+            return redirect(url_for('index'))
+
+        existing_request = conn.execute(
+            '''
+            SELECT id
+            FROM transfer_requests
+            WHERE todo_id = ?
+              AND status = 'pending'
+            ''',
+            (todo_id,),
+        ).fetchone()
+
+        if existing_request is not None:
+            flash(
+                '该工单已经存在待审批的转交申请！',
+                'info',
+            )
+            return redirect(url_for('index'))
+
+        if requested_department:
+            department_exists = conn.execute(
+                '''
+                SELECT 1
+                FROM users
+                WHERE role = 'assignee'
+                  AND active = 1
+                  AND department = ?
+                LIMIT 1
+                ''',
+                (requested_department,),
+            ).fetchone()
+
+            if department_exists is None:
+                flash('建议的目标部门不存在！', 'error')
+                return redirect(url_for('index'))
+
+        cursor = conn.execute(
+            '''
+            INSERT OR IGNORE INTO transfer_requests (
+                todo_id,
+                requested_by_id,
+                from_assignee_id,
+                requested_department,
+                reason,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, 'pending')
+            ''',
+            (
+                todo_id,
+                g.user['id'],
+                g.user['id'],
+                requested_department,
+                reason,
+            ),
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            flash(
+                '该工单刚刚已经提交了转交申请！',
+                'info',
+            )
+            return redirect(url_for('index'))
+
+        record_ticket_action(
+            conn,
+            todo,
+            g.user,
+            'transfer_requested',
+            old_value=todo['assignee'],
+            new_value=(
+                requested_department
+                or '由管理员决定接收部门'
+            ),
+            details=reason,
+        )
+        conn.commit()
+
+    flash(
+        '转交申请已提交，管理员审批前仍由你负责处理！',
+        'success',
+    )
+    return redirect(url_for('index'))
 @app.route('/delete/<int:todo_id>')
 @login_required
 def delete_todo(todo_id):

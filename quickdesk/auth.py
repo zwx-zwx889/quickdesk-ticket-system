@@ -52,6 +52,7 @@ def load_logged_in_user():
                 username,
                 display_name,
                 role,
+                department,
                 active,
                 must_change_password
             FROM users
@@ -128,9 +129,18 @@ def login():
                     url_for("auth.change_password")
                 )
 
+            role_label = ROLE_LABELS.get(
+                user['role'],
+                user['role'],
+            )
+
             flash(
-                f'欢迎登录，{user["display_name"]}！',
-                "success",
+                (
+                    f'欢迎登录：{role_label} · '
+                    f'{user["department"] or "未设置部门"} · '
+                    f'{user["display_name"]}！'
+                ),
+                'success',
             )
 
             return redirect(url_for("index"))

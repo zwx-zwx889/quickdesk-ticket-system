@@ -84,98 +84,142 @@ def _ensure_todo_columns(conn):
                 """
             )
 
+def _migrate_demo_accounts(conn):
+    """Rename old demo accounts to presentation-friendly names."""
+    account_migrations = [
+        ('zwx-zwx889', 'yy-zwx123', 'Qd@yy-zwx123'),
+        ('admin', 'yy-admin123', 'Qd@yy-admin123'),
+        ('admin2', 'yy-liumin123', 'Qd@yy-liumin123'),
+        ('requester', 'cw-wangfang123', 'Qd@cw-wangfang123'),
+        ('requester2', 'rl-liming123', 'Qd@rl-liming123'),
+        ('requester3', 'xs-zhaolei123', 'Qd@xs-zhaolei123'),
+        ('assignee', 'js-zhangwei123', 'Qd@js-zhangwei123'),
+        ('assignee2', 'js-liqiang123', 'Qd@js-liqiang123'),
+        ('assignee3', 'sb-chenyu123', 'Qd@sb-chenyu123'),
+        ('assignee4', 'xz-zhoumin123', 'Qd@xz-zhoumin123'),
+    ]
+
+    for old_username, new_username, password in account_migrations:
+        old_user = conn.execute(
+            'SELECT id FROM users WHERE username = ?',
+            (old_username,),
+        ).fetchone()
+
+        new_user = conn.execute(
+            'SELECT id FROM users WHERE username = ?',
+            (new_username,),
+        ).fetchone()
+
+        if old_user is not None and new_user is None:
+            conn.execute(
+                '''
+                UPDATE users
+                SET username = ?,
+                    password_hash = ?,
+                    must_change_password = 0,
+                    password_changed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                ''',
+                (
+                    new_username,
+                    generate_password_hash(password),
+                    old_user['id'],
+                ),
+            )
+
 
 def _create_default_users(conn):
     """Create or complete course-project demo users."""
     default_users = [
         (
-            "admin",
-            os.getenv(
-                "QUICKDESK_ADMIN_PASSWORD",
-                "Admin@123",
-            ),
-            "系统管理员",
-            "admin",
-            "运营管理部",
-            "工单调度,SLA管理",
+            'yy-zwx123',
+            'Qd@yy-zwx123',
+            'zwx',
+            'admin',
+            '运营管理部',
+            '工单调度,系统管理',
             20,
         ),
         (
-            "admin2",
-            "Admin2@123",
-            "刘敏",
-            "admin",
-            "运营管理部",
-            "工单调度,人员协调",
+            'yy-admin123',
+            'Qd@yy-admin123',
+            '系统管理员',
+            'admin',
+            '运营管理部',
+            '工单调度,SLA管理',
             20,
         ),
         (
-            "requester",
-            os.getenv(
-                "QUICKDESK_REQUESTER_PASSWORD",
-                "Requester@123",
-            ),
-            "王芳",
-            "requester",
-            "财务部",
-            "",
+            'yy-liumin123',
+            'Qd@yy-liumin123',
+            '刘敏',
+            'admin',
+            '运营管理部',
+            '工单调度,人员协调',
+            20,
+        ),
+        (
+            'cw-wangfang123',
+            'Qd@cw-wangfang123',
+            '王芳',
+            'requester',
+            '财务部',
+            '',
             5,
         ),
         (
-            "requester2",
-            "Requester2@123",
-            "李明",
-            "requester",
-            "人力资源部",
-            "",
+            'rl-liming123',
+            'Qd@rl-liming123',
+            '李明',
+            'requester',
+            '人力资源部',
+            '',
             5,
         ),
         (
-            "requester3",
-            "Requester3@123",
-            "赵磊",
-            "requester",
-            "销售部",
-            "",
+            'xs-zhaolei123',
+            'Qd@xs-zhaolei123',
+            '赵磊',
+            'requester',
+            '销售部',
+            '',
             5,
         ),
         (
-            "assignee",
-            os.getenv(
-                "QUICKDESK_ASSIGNEE_PASSWORD",
-                "Assignee@123",
-            ),
-            "张伟",
-            "assignee",
-            "技术支持部",
-            "账号登录,权限认证,应用系统",
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+            '张伟',
+            'assignee',
+            '技术支持部',
+            '账号登录,权限认证,应用系统',
             6,
         ),
         (
-            "assignee2",
-            "Assignee2@123",
-            "李强",
-            "assignee",
-            "技术支持部",
-            "网络故障,办公软件,应用系统",
+            'js-liqiang123',
+            'Qd@js-liqiang123',
+            '李强',
+            'assignee',
+            '技术支持部',
+            '网络故障,办公软件,应用系统',
             6,
         ),
         (
-            "assignee3",
-            "Assignee3@123",
-            "陈宇",
-            "assignee",
-            "设备维护部",
-            "打印机,电脑硬件,设备维修",
+            'sb-chenyu123',
+            'Qd@sb-chenyu123',
+            '陈宇',
+            'assignee',
+            '设备维护部',
+            '打印机,电脑硬件,设备维修',
             5,
         ),
         (
-            "assignee4",
-            "Assignee4@123",
-            "周敏",
-            "assignee",
-            "行政支持部",
-            "办公用品,会议室,行政服务",
+            'xz-zhoumin123',
+            'Qd@xz-zhoumin123',
+            '周敏',
+            'assignee',
+            '行政支持部',
+            '办公用品,会议室,行政服务',
             5,
         ),
     ]
@@ -293,8 +337,68 @@ def init_db():
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id INTEGER,
+                actor_id INTEGER,
+                ticket_title TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL,
+                old_value TEXT NOT NULL DEFAULT '',
+                new_value TEXT NOT NULL DEFAULT '',
+                details TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (todo_id)
+                    REFERENCES todos (id)
+                    ON DELETE SET NULL,
+                FOREIGN KEY (actor_id)
+                    REFERENCES users (id)
+                    ON DELETE SET NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transfer_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id INTEGER NOT NULL,
+                requested_by_id INTEGER NOT NULL,
+                from_assignee_id INTEGER NOT NULL,
+                requested_department TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (
+                        status IN (
+                            'pending',
+                            'approved',
+                            'rejected',
+                            'cancelled'
+                        )
+                    ),
+                reviewed_by_id INTEGER,
+                decision_note TEXT NOT NULL DEFAULT '',
+                reviewed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (todo_id)
+                    REFERENCES todos (id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_id)
+                    REFERENCES users (id),
+                FOREIGN KEY (from_assignee_id)
+                    REFERENCES users (id),
+                FOREIGN KEY (reviewed_by_id)
+                    REFERENCES users (id)
+            )
+            """
+        )
+
         _ensure_user_columns(conn)
         _ensure_todo_columns(conn)
+        _migrate_demo_accounts(conn)
         _create_default_users(conn)
 
         conn.execute(
@@ -326,6 +430,39 @@ def init_db():
             CREATE INDEX IF NOT EXISTS
             idx_todos_created_at
             ON todos (created_at)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_audit_logs_todo_id
+            ON audit_logs (todo_id, created_at)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_audit_logs_actor_id
+            ON audit_logs (actor_id, created_at)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_transfer_requests_status
+            ON transfer_requests (status, created_at)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS
+            idx_transfer_requests_one_pending
+            ON transfer_requests (todo_id)
+            WHERE status = 'pending'
             """
         )
 

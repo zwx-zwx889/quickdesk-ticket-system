@@ -51,7 +51,10 @@
                             <i class="bi bi-person-circle me-1"></i>
                             {{ g.user['display_name'] }}
 
-                            <span class="badge bg-light text-primary ms-1">
+                            <span class="nav-link text-white">
+                            <i class="bi bi-person-circle me-1"></i>
+
+                            <span class="badge bg-light text-primary me-1">
                                 {% if g.user['role'] == 'admin' %}
                                     管理员
                                 {% elif g.user['role'] == 'requester' %}
@@ -62,6 +65,10 @@
                                     {{ g.user['role'] }}
                                 {% endif %}
                             </span>
+
+                            {{ g.user['department'] or '未设置部门' }}
+                            ·
+                            {{ g.user['display_name'] }}
                         </span>
                     </li>
 
@@ -217,8 +224,12 @@
         <form method="get"
               action="{{ url_for('index') }}"
               class="row g-2 align-items-end">
-
-            <div class="{{ 'col-md-4' if g.user['role'] == 'admin' else 'col-md-6' }}">
+            {% if g.user['role'] == 'admin' %}
+                <input type="hidden"
+                name="assignment"
+                value="{{ assignment_filter }}">
+            {% endif %}
+            <div class="col-md-6">
                 <label for="q" class="form-label">
                     搜索工单
                 </label>
@@ -229,30 +240,6 @@
                        value="{{ search_query }}"
                        placeholder="搜索标题、描述、提交人或处理人">
             </div>
-            {% if g.user['role'] == 'admin' %}
-                <div class="col-md-3">
-                    <label for="assignment-filter"
-                           class="form-label">
-                        分派情况
-                    </label>
-                    <select class="form-select"
-                            id="assignment-filter"
-                            name="assignment">
-                        <option value="all"
-                            {{ 'selected' if assignment_filter == 'all' else '' }}>
-                            全部分派情况
-                        </option>
-                        <option value="unassigned"
-                            {{ 'selected' if assignment_filter == 'unassigned' else '' }}>
-                            待分派
-                        </option>
-                        <option value="assigned"
-                            {{ 'selected' if assignment_filter == 'assigned' else '' }}>
-                            已分派
-                        </option>
-                    </select>
-                </div>
-            {% endif %}
             <div class="{{ 'col-md-2' if g.user['role'] == 'admin' else 'col-md-3' }}">
                 <label for="status-filter"
                     工单状态
@@ -295,55 +282,83 @@
     </div>
 </div>
 
-                <div class="todos-container">
-                    {% if todos %}
-                        <div class="todo-stats mb-3">
-                            <small class="text-muted">
-                                工单总数：{{ all_todos|length }} |
+            {% if g.user['role'] == 'admin' %}
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-body">
+                            <div class="nav nav-pills nav-fill gap-2">
+                                <a class="nav-link {{
+                                       'active'
+                                       if assignment_filter == 'unassigned'
+                                       else ''
+                                   }}"
+                                   href="{{ url_for(
+                                       'index',
+                                       assignment='unassigned'
+                                   ) }}">
+                                    <i class="bi bi-inbox"></i>
+                                    待您分派
+                                    <span class="badge {{
+                                          'bg-light text-primary'
+                                          if assignment_filter == 'unassigned'
+                                          else 'bg-secondary'
+                                    }}">
+                                        {{ unassigned_count }}
+                                    </span>
+                                </a>
 
-                                {% if g.user['role'] == 'admin' %}
-                                    待您分派：{{
-                                        all_todos
-                                        |selectattr('assignee_id', 'none')
-                                        |list
-                                        |length
-                                    }} |
+                                <a class="nav-link {{
+                                       'active'
+                                       if assignment_filter == 'assigned'
+                                       else ''
+                                   }}"
+                                   href="{{ url_for(
+                                       'index',
+                                       assignment='assigned'
+                                   ) }}">
+                                    <i class="bi bi-person-check"></i>
+                                    已分派
+                                    <span class="badge {{
+                                          'bg-light text-primary'
+                                          if assignment_filter == 'assigned'
+                                          else 'bg-secondary'
+                                    }}">
+                                        {{ assigned_count }}
+                                    </span>
+                                </a>
 
-                                    已分派：{{
-                                        all_todos
-                                        |rejectattr('assignee_id', 'none')
-                                        |list
-                                        |length
-                                    }} |
-                                {% endif %}
-
-                                待处理：{{
-                                    all_todos
-                                    |selectattr('status', 'equalto', 'pending')
-                                    |list
-                                    |length
-                                }} |
-
-                                处理中：{{
-                                    all_todos
-                                    |selectattr('status', 'equalto', 'in_progress')
-                                    |list
-                                    |length
-                                }} |
-
-                                已完成：{{
-                                    all_todos
-                                    |selectattr('status', 'equalto', 'completed')
-                                    |list
-                                    |length
-                                }} |
-
-                                当前结果：{{ todos|length }}
-                            </small>
+                                <a class="nav-link {{
+                                       'active'
+                                       if assignment_filter == 'transfers'
+                                       else ''
+                                   }}"
+                                   href="{{ url_for(
+                                       'index',
+                                       assignment='transfers'
+                                   ) }}">
+                                    <i class="bi bi-arrow-left-right"></i>
+                                    转交审批
+                                    <span class="badge {{
+                                          'bg-warning text-dark'
+                                          if assignment_filter != 'transfers'
+                                          else 'bg-light text-primary'
+                                    }}">
+                                        {{ transfer_count }}
+                                    </span>
+                                </a>
+                            </div>
                         </div>
-                        </div>
+                    </div>
+                {% endif %}
 
-                        {% for todo in todos %}
+                    <div class="todos-container">
+                        {% if g.user['role'] == 'admin'
+                              and assignment_filter == 'transfers' %}
+
+                            {% include '_transfer_queue.html' %}
+
+                        {% elif todos %}
+
+                            {% for todo in todos %}
                             <div class="todo-item card mb-2 {{ 'completed' if todo.completed else '' }} {{ 'nested-todo' if todo.parent_id else 'parent-todo' }}" 
                                  data-todo-id="{{ todo.id }}" data-parent-id="{{ todo.parent_id or '' }}">
                                 <div class="card-body {{ 'ps-5' if todo.parent_id else '' }}">
@@ -400,45 +415,45 @@
                                                 {% endif %}
 
                                                 {% if todo.completed or todo.status == 'completed' %}
-    <span class="badge bg-success">已完成</span>
-{% elif todo.status == 'in_progress' %}
-    <span class="badge bg-warning text-dark">处理中</span>
-{% else %}
-    <span class="badge bg-info text-dark">待处理</span>
-{% endif %}
+                                                    <span class="badge bg-success">已完成</span>
+                                                {% elif todo.status == 'in_progress' %}
+                                                    <span class="badge bg-warning text-dark">处理中</span>
+                                                {% else %}
+                                                    <span class="badge bg-info text-dark">待处理</span>
+                                                {% endif %}
 
-{% if can_process_ticket(todo, g.user) %}
+                                                {% if can_process_ticket(todo, g.user) %}
 
-<form action="{{ url_for('update_status', todo_id=todo.id) }}"
-      method="post"
-      class="d-inline">
+                                                <form action="{{ url_for('update_status', todo_id=todo.id) }}"
+                                                      method="post"
+                                                      class="d-inline">
 
-    {% if todo.completed or todo.status == 'completed' %}
-        <input type="hidden" name="status" value="pending">
-        <button type="submit"
-                class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-counterclockwise"></i>
-            重新打开
-        </button>
+                                                    {% if todo.completed or todo.status == 'completed' %}
+                                                        <input type="hidden" name="status" value="pending">
+                                                        <button type="submit"
+                                                                class="btn btn-sm btn-outline-secondary">
+                                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                                            重新打开
+                                                        </button>
 
-    {% elif todo.status == 'in_progress' %}
-        <input type="hidden" name="status" value="completed">
-        <button type="submit"
-                class="btn btn-sm btn-outline-success">
-            <i class="bi bi-check-circle"></i>
-            完成工单
-        </button>
+                                                    {% elif todo.status == 'in_progress' %}
+                                                        <input type="hidden" name="status" value="completed">
+                                                        <button type="submit"
+                                                                class="btn btn-sm btn-outline-success">
+                                                            <i class="bi bi-check-circle"></i>
+                                                            完成工单
+                                                        </button>
 
-    {% else %}
-        <input type="hidden" name="status" value="in_progress">
-        <button type="submit"
-                class="btn btn-sm btn-outline-primary">
-            <i class="bi bi-play-circle"></i>
-            开始处理
-        </button>
-    {% endif %}
-</form>
-{% endif %}                                                </div>
+                                                    {% else %}
+                                                        <input type="hidden" name="status" value="in_progress">
+                                                        <button type="submit"
+                                                                class="btn btn-sm btn-outline-primary">
+                                                            <i class="bi bi-play-circle"></i>
+                                                            开始处理
+                                                        </button>
+                                                    {% endif %}
+                                                </form>
+                                                {% endif %}                                                </div>
 
                                                 <div class="small text-muted mt-2">
                                                     {% if todo.requester %}
@@ -446,6 +461,103 @@
                                                             <i class="bi bi-person"></i>
                                                             提交人：{{ todo.requester }}
                                                         </span>
+                                                    {% endif %}
+
+                                                    {% if todo.pending_transfer_id
+                                                          and g.user['role'] in ['admin', 'assignee'] %}
+                                                        <span class="badge bg-warning text-dark ms-2">
+                                                            <i class="bi bi-arrow-left-right"></i>
+                                                            转交申请待审批
+                                                        </span>
+                                                    {% endif %}
+
+                                                    {% if g.user['role'] == 'assignee'
+                                                          and todo.assignee_id == g.user['id']
+                                                          and todo.status != 'completed'
+                                                          and not todo.pending_transfer_id %}
+
+                                                        <div class="mt-2">
+                                                            <button
+                                                                class="btn btn-sm btn-outline-warning"
+                                                                type="button"
+                                                                data-bs-toggle="collapse"
+                                                                data-bs-target="#transfer-form-{{ todo.id }}"
+                                                                aria-expanded="false"
+                                                            >
+                                                                <i class="bi bi-arrow-left-right"></i>
+                                                                申请转交
+                                                            </button>
+
+                                                            <div
+                                                                class="collapse mt-2"
+                                                                id="transfer-form-{{ todo.id }}"
+                                                            >
+                                                                <form
+                                                                    action="{{ url_for(
+                                                                        'request_ticket_transfer',
+                                                                        todo_id=todo.id
+                                                                    ) }}"
+                                                                    method="post"
+                                                                    class="card card-body bg-light"
+                                                                >
+                                                                    <div class="row g-2">
+                                                                        <div class="col-md-4">
+                                                                            <label
+                                                                                for="transfer-department-{{ todo.id }}"
+                                                                                class="form-label"
+                                                                            >
+                                                                                建议接收部门
+                                                                            </label>
+
+                                                                            <select
+                                                                                class="form-select form-select-sm"
+                                                                                id="transfer-department-{{ todo.id }}"
+                                                                                name="requested_department"
+                                                                            >
+                                                                                <option value="">
+                                                                                    由管理员决定
+                                                                                </option>
+
+                                                                                {% for department in transfer_departments %}
+                                                                                    <option value="{{ department.department }}">
+                                                                                        {{ department.department }}
+                                                                                    </option>
+                                                                                {% endfor %}
+                                                                            </select>
+                                                                        </div>
+
+                                                                        <div class="col-md-6">
+                                                                            <label
+                                                                                for="transfer-reason-{{ todo.id }}"
+                                                                                class="form-label"
+                                                                            >
+                                                                                转交原因
+                                                                            </label>
+
+                                                                            <input
+                                                                                type="text"
+                                                                                class="form-control form-control-sm"
+                                                                                id="transfer-reason-{{ todo.id }}"
+                                                                                name="reason"
+                                                                                minlength="3"
+                                                                                maxlength="500"
+                                                                                placeholder="说明无法继续处理的原因"
+                                                                                required
+                                                                            >
+                                                                        </div>
+
+                                                                        <div class="col-md-2 d-flex align-items-end">
+                                                                            <button
+                                                                                type="submit"
+                                                                                class="btn btn-sm btn-warning w-100"
+                                                                            >
+                                                                                提交申请
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </form>
+                                                            </div>
+                                                        </div>
                                                     {% endif %}
 
                                                     {% if g.user['role'] == 'admin'

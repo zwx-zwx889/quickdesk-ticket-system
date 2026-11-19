@@ -34,8 +34,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'admin',
-                'password': 'Admin@123',
+                'username': 'yy-admin123',
+                'password': 'Qd@yy-admin123',
             },
             follow_redirects=True,
         )
@@ -83,7 +83,7 @@ class FlaskTasksTestCase(unittest.TestCase):
         response = self.client.post(
             '/login',
             data={
-                'username': 'admin',
+                'username': 'yy-admin123',
                 'password': 'wrong-password',
             },
             follow_redirects=True,
@@ -94,9 +94,68 @@ class FlaskTasksTestCase(unittest.TestCase):
             '用户名或密码错误！'.encode('utf-8'),
             response.data,
         )
+
     def init_test_db(self):
         """Initialize the test database."""
         init_db()
+
+    def _login_as(self, username, password):
+        """Log in using the requested demonstration account."""
+        self.client.post('/logout')
+
+        return self.client.post(
+            '/login',
+            data={
+                'username': username,
+                'password': password,
+            },
+            follow_redirects=True,
+        )
+
+    def _create_assigned_transfer_ticket(self, task):
+        """Create a ticket and assign it to Zhang Wei."""
+        self.client.post(
+            '/add',
+            data={
+                'task': task,
+                'description': '用于测试工单转交审批流程',
+                'priority': 'high',
+                'requester': '王芳',
+            },
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket_id = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                (task,),
+            ).fetchone()[0]
+
+            zhangwei_id = conn.execute(
+                '''
+                SELECT id
+                FROM users
+                WHERE username = 'js-zhangwei123'
+                '''
+            ).fetchone()[0]
+
+            liqiang_id = conn.execute(
+                '''
+                SELECT id
+                FROM users
+                WHERE username = 'js-liqiang123'
+                '''
+            ).fetchone()[0]
+
+        self.client.post(
+            f'/assign/{ticket_id}',
+            data={
+                'assignee_id': str(zhangwei_id),
+            },
+            follow_redirects=True,
+        )
+
+        return ticket_id, zhangwei_id, liqiang_id
 
     def test_index_page_loads(self):
         """Test that the index page loads successfully."""
@@ -549,8 +608,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'requester',
-                'password': 'Requester@123',
+                'username': 'cw-wangfang123',
+                'password': 'Qd@cw-wangfang123',
             },
             follow_redirects=True,
         )
@@ -597,8 +656,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'assignee',
-                'password': 'Assignee@123',
+                'username': 'js-zhangwei123',
+                'password': 'Qd@js-zhangwei123',
             },
             follow_redirects=True,
         )
@@ -640,8 +699,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'requester',
-                'password': 'Requester@123',
+                'username': 'cw-wangfang123',
+                'password': 'Qd@cw-wangfang123',
             },
             follow_redirects=True,
         )
@@ -665,8 +724,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'assignee',
-                'password': 'Assignee@123',
+                'username': 'js-zhangwei123',
+                'password': 'Qd@js-zhangwei123',
             },
             follow_redirects=True,
         )
@@ -772,7 +831,7 @@ class FlaskTasksTestCase(unittest.TestCase):
                 '''
                 SELECT id, password_hash
                 FROM users
-                WHERE username = 'requester2'
+                WHERE username = 'rl-liming123'
                 '''
             ).fetchone()
 
@@ -803,8 +862,8 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'requester',
-                'password': 'Requester@123',
+                'username': 'cw-wangfang123',
+                'password': 'Qd@cw-wangfang123',
             },
         )
 
@@ -814,6 +873,189 @@ class FlaskTasksTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_assignee_can_request_ticket_transfer(self):
+        """Test that an assignee can submit a transfer request."""
+        ticket_id, zhangwei_id, _ = (
+            self._create_assigned_transfer_ticket(
+                '转交申请测试工单'
+            )
+        )
+
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        response = self.client.post(
+            f'/transfer-request/{ticket_id}',
+            data={
+                'requested_department': '设备维护部',
+                'reason': '该问题属于设备故障，需要设备维护部处理',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            transfer = conn.execute(
+                '''
+                SELECT status,
+                       requested_by_id,
+                       from_assignee_id
+                FROM transfer_requests
+                WHERE todo_id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(transfer)
+        self.assertEqual(transfer[0], 'pending')
+        self.assertEqual(transfer[1], zhangwei_id)
+        self.assertEqual(transfer[2], zhangwei_id)
+
+    def test_admin_can_approve_ticket_transfer(self):
+        """Test approving a request changes the ticket assignee."""
+        ticket_id, _, liqiang_id = (
+            self._create_assigned_transfer_ticket(
+                '批准转交测试工单'
+            )
+        )
+
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        self.client.post(
+            f'/transfer-request/{ticket_id}',
+            data={
+                'requested_department': '技术支持部',
+                'reason': '当前工作量较大，申请转交其他处理人',
+            },
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            transfer_id = conn.execute(
+                '''
+                SELECT id
+                FROM transfer_requests
+                WHERE todo_id = ?
+                  AND status = 'pending'
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self._login_as(
+            'yy-admin123',
+            'Qd@yy-admin123',
+        )
+
+        response = self.client.post(
+            f'/transfers/{transfer_id}/approve',
+            data={
+                'assignee_id': str(liqiang_id),
+                'decision_note': '批准转交给李强处理',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket = conn.execute(
+                '''
+                SELECT assignee_id, assignee
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()
+
+            transfer_status = conn.execute(
+                '''
+                SELECT status
+                FROM transfer_requests
+                WHERE id = ?
+                ''',
+                (transfer_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(ticket[0], liqiang_id)
+        self.assertEqual(ticket[1], '李强')
+        self.assertEqual(transfer_status, 'approved')
+
+    def test_admin_can_reject_ticket_transfer(self):
+        """Test rejecting a request keeps the current assignee."""
+        ticket_id, zhangwei_id, _ = (
+            self._create_assigned_transfer_ticket(
+                '拒绝转交测试工单'
+            )
+        )
+
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        self.client.post(
+            f'/transfer-request/{ticket_id}',
+            data={
+                'requested_department': '',
+                'reason': '申请由管理员重新安排处理人',
+            },
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            transfer_id = conn.execute(
+                '''
+                SELECT id
+                FROM transfer_requests
+                WHERE todo_id = ?
+                  AND status = 'pending'
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self._login_as(
+            'yy-admin123',
+            'Qd@yy-admin123',
+        )
+
+        response = self.client.post(
+            f'/transfers/{transfer_id}/reject',
+            data={
+                'decision_note': '当前处理人仍具备处理能力',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket_assignee_id = conn.execute(
+                '''
+                SELECT assignee_id
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+            transfer_status = conn.execute(
+                '''
+                SELECT status
+                FROM transfer_requests
+                WHERE id = ?
+                ''',
+                (transfer_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(ticket_assignee_id, zhangwei_id)
+        self.assertEqual(transfer_status, 'rejected')
 
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""
@@ -834,8 +1076,8 @@ class BasicUITestCase(unittest.TestCase):
         self.client.post(
             '/login',
             data={
-                'username': 'admin',
-                'password': 'Admin@123',
+                'username': 'yy-admin123',
+                'password': 'Qd@yy-admin123',
             },
             follow_redirects=True,
         )
