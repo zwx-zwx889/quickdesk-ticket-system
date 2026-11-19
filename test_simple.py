@@ -519,6 +519,301 @@ class FlaskTasksTestCase(unittest.TestCase):
                                   follow_redirects=True)
         self.assertEqual(response.status_code, 200)
 
+    def test_requester_only_sees_own_tickets(self):
+        """Test that requesters only see tickets they submitted."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '王芳提交的工单',
+                'description': '提交人自己的工单',
+                'priority': 'medium',
+                'requester': '王芳',
+                'assignee': '张伟',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post(
+            '/add',
+            data={
+                'task': '其他用户提交的工单',
+                'description': '不应向王芳显示',
+                'priority': 'low',
+                'requester': '李明',
+                'assignee': '张伟',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post('/logout')
+        self.client.post(
+            '/login',
+            data={
+                'username': 'requester',
+                'password': 'Requester@123',
+            },
+            follow_redirects=True,
+        )
+
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '王芳提交的工单'.encode('utf-8'),
+            response.data,
+        )
+        self.assertNotIn(
+            '其他用户提交的工单'.encode('utf-8'),
+            response.data,
+        )
+
+    def test_assignee_only_sees_assigned_tickets(self):
+        """Test that assignees only see tickets assigned to them."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '分配给张伟的工单',
+                'description': '张伟应当可以看到',
+                'priority': 'high',
+                'requester': '王芳',
+                'assignee': '张伟',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post(
+            '/add',
+            data={
+                'task': '分配给其他人员的工单',
+                'description': '张伟不应看到',
+                'priority': 'medium',
+                'requester': '王芳',
+                'assignee': '李强',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post('/logout')
+        self.client.post(
+            '/login',
+            data={
+                'username': 'assignee',
+                'password': 'Assignee@123',
+            },
+            follow_redirects=True,
+        )
+
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '分配给张伟的工单'.encode('utf-8'),
+            response.data,
+        )
+        self.assertNotIn(
+            '分配给其他人员的工单'.encode('utf-8'),
+            response.data,
+        )
+
+    def test_role_operation_permissions(self):
+        """Test requester and assignee operation permissions."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '角色权限测试工单',
+                'description': '验证状态、编辑和删除权限',
+                'priority': 'high',
+                'requester': '王芳',
+                'assignee': '张伟',
+            },
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket_id = conn.execute(
+                'SELECT id FROM todos WHERE task = ?',
+                ('角色权限测试工单',),
+            ).fetchone()[0]
+
+        # 提交人不能更新工单状态
+        self.client.post('/logout')
+        self.client.post(
+            '/login',
+            data={
+                'username': 'requester',
+                'password': 'Requester@123',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            status = conn.execute(
+                'SELECT status FROM todos WHERE id = ?',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(status, 'pending')
+
+        # 被分派的处理人可以更新状态
+        self.client.post('/logout')
+        self.client.post(
+            '/login',
+            data={
+                'username': 'assignee',
+                'password': 'Assignee@123',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post(
+            f'/status/{ticket_id}',
+            data={'status': 'in_progress'},
+            follow_redirects=True,
+        )
+
+        # 处理人不能修改原始工单内容
+        self.client.post(
+            f'/edit/{ticket_id}',
+            data={
+                'task': '越权修改后的标题',
+                'description': '不应保存',
+                'priority': 'urgent',
+                'requester': '王芳',
+                'assignee': '张伟',
+            },
+            follow_redirects=True,
+        )
+
+        # 处理人不能删除工单
+        self.client.get(
+            f'/delete/{ticket_id}',
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket = conn.execute(
+                '''
+                SELECT task, status
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(ticket)
+        self.assertEqual(ticket[0], '角色权限测试工单')
+        self.assertEqual(ticket[1], 'in_progress')
+
+    def test_new_account_must_change_temporary_password(self):
+        """Test first-login password replacement for a new account."""
+        self.client.post(
+            '/users/create',
+            data={
+                'username': 'newemployee',
+                'display_name': '新员工',
+                'role': 'requester',
+                'department': '测试部',
+                'password': 'Temporary@123',
+                'max_active_tickets': '5',
+            },
+            follow_redirects=True,
+        )
+
+        self.client.post('/logout')
+        response = self.client.post(
+            '/login',
+            data={
+                'username': 'newemployee',
+                'password': 'Temporary@123',
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            '/change-password',
+            response.headers['Location'],
+        )
+
+        response = self.client.post(
+            '/change-password',
+            data={
+                'current_password': 'Temporary@123',
+                'new_password': 'MySecure@456',
+                'confirm_password': 'MySecure@456',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('密码修改成功'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            must_change = conn.execute(
+                '''
+                SELECT must_change_password
+                FROM users
+                WHERE username = 'newemployee'
+                '''
+            ).fetchone()[0]
+
+        self.assertEqual(must_change, 0)
+
+    def test_admin_can_reset_user_password(self):
+        """Test that an admin can issue a one-time password."""
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            user_id, old_hash = conn.execute(
+                '''
+                SELECT id, password_hash
+                FROM users
+                WHERE username = 'requester2'
+                '''
+            ).fetchone()
+
+        response = self.client.post(
+            f'/users/{user_id}/reset-password',
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('一次性临时密码'.encode('utf-8'), response.data)
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            new_hash, must_change = conn.execute(
+                '''
+                SELECT password_hash, must_change_password
+                FROM users
+                WHERE id = ?
+                ''',
+                (user_id,),
+            ).fetchone()
+
+        self.assertNotEqual(new_hash, old_hash)
+        self.assertEqual(must_change, 1)
+
+    def test_user_management_requires_admin(self):
+        """Test that non-admin users cannot manage accounts."""
+        self.client.post('/logout')
+        self.client.post(
+            '/login',
+            data={
+                'username': 'requester',
+                'password': 'Requester@123',
+            },
+        )
+
+        response = self.client.get(
+            '/users/',
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 403)
 
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""

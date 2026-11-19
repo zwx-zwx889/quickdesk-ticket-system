@@ -103,10 +103,14 @@
                                     提交人
                                 </label>
                                 <input type="text"
-                                       class="form-control"
+                                       class="form-control bg-light"
                                        id="requester"
-                                       name="requester"
-                                       value="{{ todo.requester }}">
+                                       value="{{ todo.requester or '未记录' }}"
+                                       readonly
+                                       aria-readonly="true">
+                                <div class="form-text">
+                                    提交人创建后不可修改
+                                </div>
                             </div>
 
                             <div class="col-md-4">
@@ -115,12 +119,15 @@
                                     处理人
                                 </label>
                                 <input type="text"
-                                       class="form-control"
+                                       class="form-control bg-light"
                                        id="assignee"
-                                       name="assignee"
-                                       value="{{ todo.assignee }}">
+                                       value="{{ todo.assignee or '尚未分派' }}"
+                                       readonly
+                                       aria-readonly="true">
+                                <div class="form-text">
+                                    请通过工单分派或转交功能修改
+                                </div>
                             </div>
-                        </div>
 
                         <div class="alert alert-light border">
                             <div>

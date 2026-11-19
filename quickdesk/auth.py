@@ -14,7 +14,10 @@ from flask import (
     session,
     url_for,
 )
-from werkzeug.security import check_password_hash
+from werkzeug.security import (
+    check_password_hash,
+    generate_password_hash,
+)
 
 from quickdesk.db import connect_db
 
@@ -49,7 +52,8 @@ def load_logged_in_user():
                 username,
                 display_name,
                 role,
-                active
+                active,
+                must_change_password
             FROM users
             WHERE id = ?
             """,
@@ -59,6 +63,17 @@ def load_logged_in_user():
     if g.user is None or not g.user["active"]:
         session.clear()
         g.user = None
+        return
+
+    if (
+        g.user["must_change_password"]
+        and request.endpoint not in {
+            "auth.change_password",
+            "auth.logout",
+            "static",
+        }
+    ):
+        return redirect(url_for("auth.change_password"))
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -104,6 +119,15 @@ def login():
             session.clear()
             session["user_id"] = user["id"]
 
+            if user["must_change_password"]:
+                flash(
+                    "当前使用的是临时密码，请先设置新密码。",
+                    "info",
+                )
+                return redirect(
+                    url_for("auth.change_password")
+                )
+
             flash(
                 f'欢迎登录，{user["display_name"]}！',
                 "success",
@@ -138,6 +162,72 @@ def login_required(view):
         return view(*args, **kwargs)
 
     return wrapped_view
+
+
+@auth_bp.route(
+    "/change-password",
+    methods=["GET", "POST"],
+)
+@login_required
+def change_password():
+    """Allow the current user to replace their password."""
+    if request.method == "POST":
+        current_password = request.form.get(
+            "current_password",
+            "",
+        )
+        new_password = request.form.get(
+            "new_password",
+            "",
+        )
+        confirm_password = request.form.get(
+            "confirm_password",
+            "",
+        )
+
+        with closing(connect_db()) as conn:
+            user = conn.execute(
+                "SELECT * FROM users WHERE id = ?",
+                (g.user["id"],),
+            ).fetchone()
+
+            error = None
+
+            if not check_password_hash(
+                user["password_hash"],
+                current_password,
+            ):
+                error = "当前密码不正确！"
+            elif len(new_password) < 8:
+                error = "新密码长度不能少于8位！"
+            elif new_password != confirm_password:
+                error = "两次输入的新密码不一致！"
+            elif new_password == current_password:
+                error = "新密码不能与当前密码相同！"
+
+            if error is None:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET password_hash = ?,
+                        must_change_password = 0,
+                        password_changed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        generate_password_hash(new_password),
+                        g.user["id"],
+                    ),
+                )
+                conn.commit()
+
+                flash("密码修改成功！", "success")
+                return redirect(url_for("index"))
+
+        flash(error, "error")
+
+    return render_template("change_password.html")
 
 
 def roles_required(*allowed_roles):
