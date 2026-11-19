@@ -1,52 +1,18 @@
 from contextlib import closing
 from flask import Flask, render_template, request, redirect, url_for, flash
-import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
+from quickdesk.db import connect_db, init_db
+from quickdesk.sla import (
+    calculate_sla_deadline,
+    normalize_priority,
+)
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
-DATABASE = 'quickdesk.db'
-
-def init_db():
-    with closing(sqlite3.connect(DATABASE)) as conn:
-        conn.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS todos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            priority TEXT NOT NULL DEFAULT 'medium',
-            status TEXT NOT NULL DEFAULT 'pending',
-            requester TEXT NOT NULL DEFAULT '',
-            assignee TEXT NOT NULL DEFAULT '',
-            sla_deadline TIMESTAMP,
-            completed BOOLEAN DEFAULT FALSE,
-            parent_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id)
-                REFERENCES todos (id)
-                ON DELETE CASCADE
-        )       
-            '''
-        )
-
-        try:
-            conn.execute(
-                'ALTER TABLE todos ADD COLUMN parent_id INTEGER'
-            )
-        except sqlite3.OperationalError:
-            pass
-            # 将旧版本的 new 状态迁移为 pending
-        conn.execute(
-            "UPDATE todos SET status = 'pending' WHERE status = 'new'"
-        )
-        conn.commit()
 
 
 def get_todos_hierarchical():
-    with closing(sqlite3.connect(DATABASE)) as conn:
-        conn.row_factory = sqlite3.Row
+    with closing(connect_db()) as conn:
         
         # Get all todos with their children count
         todos = conn.execute('''
@@ -123,24 +89,17 @@ def index():
 def add_todo():
     task = request.form.get('task', '').strip()
     description = request.form.get('description', '').strip()
-    priority = request.form.get('priority', 'medium')
+    priority = normalize_priority(
+        request.form.get('priority', 'medium')
+    )
     requester = request.form.get('requester', '').strip()
     assignee = request.form.get('assignee', '').strip()
     parent_id = request.form.get('parent_id') or None
 
-    sla_hours = {
-        'urgent': 4,
-        'high': 8,
-        'medium': 24,
-        'low': 72
-    }
-    deadline = datetime.now() + timedelta(
-        hours=sla_hours.get(priority, 24)
-    )
-    sla_deadline = deadline.strftime('%Y-%m-%d %H:%M:%S')
+    sla_deadline = calculate_sla_deadline(priority)
 
     if task:
-        with closing(sqlite3.connect(DATABASE)) as conn:
+        with closing(connect_db()) as conn:
             conn.execute(
                 '''
                 INSERT INTO todos (
@@ -176,7 +135,7 @@ def add_todo():
 
 @app.route('/toggle/<int:todo_id>')
 def toggle_todo(todo_id):
-    with closing(sqlite3.connect(DATABASE)) as conn:
+    with closing(connect_db()) as conn:
         current = conn.execute(
             'SELECT completed FROM todos WHERE id = ?',
             (todo_id,)
@@ -218,7 +177,7 @@ def update_status(todo_id):
 
     completed = 1 if new_status == 'completed' else 0
 
-    with closing(sqlite3.connect(DATABASE)) as conn:
+    with closing(connect_db()) as conn:
         conn.execute(
             '''
             UPDATE todos
@@ -239,7 +198,7 @@ def update_status(todo_id):
 
 @app.route('/delete/<int:todo_id>')
 def delete_todo(todo_id):
-    with closing(sqlite3.connect(DATABASE)) as conn:
+    with closing(connect_db()) as conn:
         # Delete the todo and its children (CASCADE will handle children)
         conn.execute('DELETE FROM todos WHERE id = ?', (todo_id,))
         conn.commit()
@@ -248,7 +207,7 @@ def delete_todo(todo_id):
 
 @app.route('/toggle_with_children/<int:todo_id>')
 def toggle_todo_with_children(todo_id):
-    with closing(sqlite3.connect(DATABASE)) as conn:
+    with closing(connect_db()) as conn:
         current = conn.execute(
             'SELECT completed FROM todos WHERE id = ?',
             (todo_id,)
@@ -281,8 +240,8 @@ def toggle_todo_with_children(todo_id):
 
 @app.route('/edit/<int:todo_id>', methods=['GET', 'POST'])
 def edit_todo(todo_id):
-    with closing(sqlite3.connect(DATABASE)) as conn:
-        conn.row_factory = sqlite3.Row
+    with closing(connect_db()) as conn:
+
         todo = conn.execute(
             'SELECT * FROM todos WHERE id = ?',
             (todo_id,)
@@ -303,9 +262,12 @@ def edit_todo(todo_id):
             todo['description']
         ).strip()
 
-        priority = request.form.get(
-            'priority',
-            todo['priority']
+        priority = normalize_priority(
+            request.form.get(
+                'priority',
+                todo['priority']
+            ),
+            fallback=todo['priority']
         )
 
         requester = request.form.get(
@@ -318,15 +280,7 @@ def edit_todo(todo_id):
             todo['assignee']
         ).strip()
 
-        allowed_priorities = {
-            'low',
-            'medium',
-            'high',
-            'urgent'
-        }
 
-        if priority not in allowed_priorities:
-            priority = todo['priority']
 
         if not task:
             flash('工单标题不能为空！', 'error')
@@ -334,21 +288,9 @@ def edit_todo(todo_id):
                 url_for('edit_todo', todo_id=todo_id)
             )
 
-        sla_hours = {
-            'urgent': 4,
-            'high': 8,
-            'medium': 24,
-            'low': 72
-        }
+        sla_deadline = calculate_sla_deadline(priority)
 
-        deadline = datetime.now() + timedelta(
-            hours=sla_hours[priority]
-        )
-        sla_deadline = deadline.strftime(
-            '%Y-%m-%d %H:%M:%S'
-        )
-
-        with closing(sqlite3.connect(DATABASE)) as conn:
+        with closing(connect_db()) as conn:
             conn.execute(
                 '''
                 UPDATE todos
