@@ -1057,6 +1057,55 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertEqual(ticket_assignee_id, zhangwei_id)
         self.assertEqual(transfer_status, 'rejected')
 
+    def test_admin_can_view_and_filter_audit_logs(self):
+            """Test that administrators can search audit logs."""
+            self.client.post(
+                '/add',
+                data={
+                    'task': '操作日志查询测试工单',
+                    'description': '验证管理员日志查询和类型筛选',
+                    'priority': 'medium',
+                    'requester': '王芳',
+                },
+                follow_redirects=True,
+            )
+
+            response = self.client.get(
+                '/audit/',
+                query_string={
+                    'q': '操作日志查询测试工单',
+                    'action': 'created',
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(
+                '系统操作日志'.encode('utf-8'),
+                response.data,
+            )
+            self.assertIn(
+                '操作日志查询测试工单'.encode('utf-8'),
+                response.data,
+            )
+            self.assertIn(
+                '创建工单'.encode('utf-8'),
+                response.data,
+            )
+
+    def test_audit_logs_require_admin(self):
+            """Test that non-admin users cannot view audit logs."""
+            self._login_as(
+                'cw-wangfang123',
+                'Qd@cw-wangfang123',
+            )
+
+            response = self.client.get(
+                '/audit/',
+                follow_redirects=False,
+            )
+
+            self.assertEqual(response.status_code, 403)
+
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""
 

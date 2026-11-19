@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>操作日志 - QuickDesk</title>
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+        rel="stylesheet"
+    >
+    <link
+        href="{{ url_for('static', filename='css/style.css') }}"
+        rel="stylesheet"
+    >
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand"
+               href="{{ url_for('index') }}">
+                <i class="bi bi-ticket-detailed me-2"></i>
+                QuickDesk
+            </a>
+
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-white">
+                    管理员 ·
+                    {{ g.user['department'] or '未设置部门' }} ·
+                    {{ g.user['display_name'] }}
+                </span>
+
+                <a href="{{ url_for('index') }}"
+                   class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-arrow-left"></i>
+                    返回工单管理
+                </a>
+
+                <form action="{{ url_for('auth.logout') }}"
+                      method="post"
+                      class="m-0">
+                    <button type="submit"
+                            class="btn btn-outline-light btn-sm">
+                        <i class="bi bi-box-arrow-right"></i>
+                        退出登录
+                    </button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container py-4">
+        {% with messages =
+            get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{
+                            'danger'
+                            if category == 'error'
+                            else 'primary'
+                            if category == 'info'
+                            else 'success'
+                         }} alert-dismissible fade show"
+                         role="alert">
+                        {{ message }}
+
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="alert">
+                        </button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="mb-4">
+            <h1 class="mb-1">
+                <i class="bi bi-journal-text"></i>
+                系统操作日志
+            </h1>
+
+            <p class="text-muted mb-0">
+                查询工单创建、编辑、分派、状态流转及转交审批记录
+            </p>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="text-muted">
+                            当前查询结果
+                        </div>
+
+                        <div class="display-6 fw-bold text-primary">
+                            {{ total_count }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="text-muted">
+                            今日操作数量
+                        </div>
+
+                        <div class="display-6 fw-bold text-success">
+                            {{ today_count }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="text-muted">
+                            当前页码
+                        </div>
+
+                        <div class="display-6 fw-bold text-secondary">
+                            {{ page }} / {{ total_pages }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <form method="get"
+                      action="{{ url_for('audit.audit_list') }}"
+                      class="row g-3 align-items-end">
+
+                    <div class="col-md-6">
+                        <label for="audit-search"
+                               class="form-label">
+                            搜索日志
+                        </label>
+
+                        <input type="text"
+                               class="form-control"
+                               id="audit-search"
+                               name="q"
+                               value="{{ search_query }}"
+                               placeholder="搜索工单、操作人、变更内容或说明">
+                    </div>
+
+                    <div class="col-md-3">
+                        <label for="action-filter"
+                               class="form-label">
+                            操作类型
+                        </label>
+
+                        <select class="form-select"
+                                id="action-filter"
+                                name="action">
+                            <option value="all">
+                                全部操作
+                            </option>
+
+                            {% for action, label
+                                  in action_labels.items() %}
+                                <option
+                                    value="{{ action }}"
+                                    {{ 'selected'
+                                       if action_filter == action
+                                       else '' }}
+                                >
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <button type="submit"
+                                class="btn btn-primary">
+                            <i class="bi bi-search"></i>
+                            查询
+                        </button>
+
+                        <a href="{{ url_for('audit.audit_list') }}"
+                           class="btn btn-outline-secondary">
+                            重置
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% set action_colors = {
+            'created': 'primary',
+            'edited': 'secondary',
+            'assigned': 'success',
+            'reassigned': 'info',
+            'unassigned': 'dark',
+            'transferred': 'info',
+            'transfer_requested': 'warning',
+            'transfer_approved': 'success',
+            'transfer_rejected': 'danger',
+            'status_changed': 'primary',
+            'deleted': 'danger'
+        } %}
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">
+                <strong>
+                    日志记录（{{ total_count }}）
+                </strong>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0"
+                    style="min-width: 1180px;">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="min-width: 150px;">时间</th>
+                            <th style="min-width: 190px;">工单</th>
+                            <th style="min-width: 120px;">操作类型</th>
+                            <th style="min-width: 160px;">操作人</th>
+                            <th style="min-width: 190px;">变更内容</th>
+                            <th style="min-width: 300px;">详细说明</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for log in logs %}
+                            <tr>
+                                <td class="text-nowrap">
+                                    {{ log.created_at[:16] }}
+                                </td>
+
+                                <td>
+                                    {% if log.todo_id %}
+                                        <span class="badge bg-secondary">
+                                            #{{ log.todo_id }}
+                                        </span>
+                                    {% endif %}
+
+                                    <div class="mt-1">
+                                        {{ log.ticket_title }}
+                                    </div>
+                                </td>
+
+                                <td class="text-nowrap">
+                                    <span class="badge bg-{{
+                                        action_colors.get(
+                                            log.action,
+                                            'secondary'
+                                        )
+                                    }}">
+                                        {{
+                                            action_labels.get(
+                                                log.action,
+                                                log.action
+                                            )
+                                        }}
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <strong>{{ log.actor_name }}</strong>
+
+                                    {% if log.actor_department %}
+                                        <div class="small text-muted">
+                                            {{ log.actor_department }}
+                                        </div>
+                                    {% endif %}
+
+                                    {% if log.actor_username %}
+                                        <div class="small text-muted">
+                                            {{ log.actor_username }}
+                                        </div>
+                                    {% endif %}
+                                </td>
+
+                                <td style="min-width: 190px;">
+                                {% if log.old_value or log.new_value %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted">
+                                            {{ log.old_value or '—' }}
+                                        </span>
+
+                                        <i class="bi bi-arrow-right"></i>
+
+                                        <strong>
+                                            {{ log.new_value or '—' }}
+                                        </strong>
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+
+                            <td style="min-width: 300px;">
+                                {{ log.details or '—' }}
+                            </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6"
+                                    class="text-center py-5">
+                                    <i class="bi bi-journal-x
+                                              display-4
+                                              text-muted"></i>
+
+                                    <h4 class="mt-3 text-muted">
+                                        暂无符合条件的操作日志
+                                    </h4>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% if total_pages > 1 %}
+            <nav class="mt-4"
+                 aria-label="操作日志分页">
+                <ul class="pagination justify-content-center">
+                    <li class="page-item {{
+                        'disabled' if page <= 1 else ''
+                    }}">
+                        <a class="page-link"
+                           href="{{ url_for(
+                               'audit.audit_list',
+                               q=search_query,
+                               action=action_filter,
+                               page=page - 1
+                           ) }}">
+                            上一页
+                        </a>
+                    </li>
+
+                    <li class="page-item disabled">
+                        <span class="page-link">
+                            第 {{ page }} / {{ total_pages }} 页
+                        </span>
+                    </li>
+
+                    <li class="page-item {{
+                        'disabled'
+                        if page >= total_pages
+                        else ''
+                    }}">
+                        <a class="page-link"
+                           href="{{ url_for(
+                               'audit.audit_list',
+                               q=search_query,
+                               action=action_filter,
+                               page=page + 1
+                           ) }}">
+                            下一页
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        {% endif %}
+    </main>
+
+    <footer class="bg-dark text-light py-4 mt-5">
+        <div class="container text-center">
+            <p class="mb-0">
+                &copy; 2026 QuickDesk 企业工单与SLA协作管理系统
+            </p>
+        </div>
+    </footer>
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+    </script>
+</body>
+</html>

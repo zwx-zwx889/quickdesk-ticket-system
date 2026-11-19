@@ -8,8 +8,11 @@ from flask import (
     flash,
     g,
 )
+from quickdesk.audit import (
+    audit_bp,
+    record_ticket_action,
+)
 from quickdesk.transfers import transfers_bp
-from quickdesk.audit import record_ticket_action
 from datetime import datetime
 from quickdesk.db import connect_db, init_db
 from quickdesk.sla import (
@@ -32,6 +35,7 @@ app.secret_key = os.getenv(
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(transfers_bp)
+app.register_blueprint(audit_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:
