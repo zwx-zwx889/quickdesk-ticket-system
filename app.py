@@ -19,6 +19,7 @@ from quickdesk.sla import (
     calculate_sla_deadline,
     normalize_priority,
 )
+from quickdesk.dashboard import dashboard_bp
 import os
 from quickdesk.auth import (
     auth_bp,
@@ -36,6 +37,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(transfers_bp)
 app.register_blueprint(audit_bp)
+app.register_blueprint(dashboard_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:

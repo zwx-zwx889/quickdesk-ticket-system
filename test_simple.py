@@ -1106,6 +1106,54 @@ class FlaskTasksTestCase(unittest.TestCase):
 
             self.assertEqual(response.status_code, 403)
 
+    def test_admin_can_view_dashboard(self):
+        """Test that administrators can view dashboard statistics."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '仪表盘统计测试工单',
+                'description': '验证管理员数据看板',
+                'priority': 'urgent',
+                'requester': '王芳',
+            },
+            follow_redirects=True,
+        )
+
+        response = self.client.get('/dashboard/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '工单数据仪表盘'.encode('utf-8'),
+            response.data,
+        )
+        self.assertIn(
+            '工单总数'.encode('utf-8'),
+            response.data,
+        )
+        self.assertIn(
+            'SLA达标率'.encode('utf-8'),
+            response.data,
+        )
+        self.assertIn(
+            '处理人工作负载'.encode('utf-8'),
+            response.data,
+        )
+
+
+    def test_dashboard_requires_admin(self):
+        """Test that non-admin users cannot view the dashboard."""
+        self._login_as(
+            'cw-wangfang123',
+            'Qd@cw-wangfang123',
+        )
+
+        response = self.client.get(
+            '/dashboard/',
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 403)
+
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""
 
