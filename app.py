@@ -6,10 +6,18 @@ from quickdesk.sla import (
     calculate_sla_deadline,
     normalize_priority,
 )
+import os
+from quickdesk.auth import (
+    auth_bp,
+    login_required,
+)
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
-
+app.secret_key = os.getenv(
+    "QUICKDESK_SECRET_KEY",
+    "quickdesk-course-secret-key",
+)
+app.register_blueprint(auth_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:
@@ -36,6 +44,7 @@ def get_todos():
     return get_todos_hierarchical()
 
 @app.route('/')
+@login_required
 def index():
     all_todos = get_todos_hierarchical()
 
@@ -86,6 +95,7 @@ def index():
     )
 
 @app.route('/add', methods=['POST'])
+@login_required
 def add_todo():
     task = request.form.get('task', '').strip()
     description = request.form.get('description', '').strip()
@@ -134,6 +144,7 @@ def add_todo():
     return redirect(url_for('index'))
 
 @app.route('/toggle/<int:todo_id>')
+@login_required
 def toggle_todo(todo_id):
     with closing(connect_db()) as conn:
         current = conn.execute(
@@ -162,6 +173,7 @@ def toggle_todo(todo_id):
     return redirect(url_for('index'))
 
 @app.route('/status/<int:todo_id>', methods=['POST'])
+@login_required
 def update_status(todo_id):
     new_status = request.form.get('status', '').strip()
 
@@ -197,6 +209,7 @@ def update_status(todo_id):
     return redirect(url_for('index'))
 
 @app.route('/delete/<int:todo_id>')
+@login_required
 def delete_todo(todo_id):
     with closing(connect_db()) as conn:
         # Delete the todo and its children (CASCADE will handle children)
@@ -206,6 +219,7 @@ def delete_todo(todo_id):
     return redirect(url_for('index'))
 
 @app.route('/toggle_with_children/<int:todo_id>')
+@login_required
 def toggle_todo_with_children(todo_id):
     with closing(connect_db()) as conn:
         current = conn.execute(
@@ -239,6 +253,7 @@ def toggle_todo_with_children(todo_id):
     return redirect(url_for('index'))
 
 @app.route('/edit/<int:todo_id>', methods=['GET', 'POST'])
+@login_required
 def edit_todo(todo_id):
     with closing(connect_db()) as conn:
 
@@ -324,6 +339,7 @@ def edit_todo(todo_id):
     )
 
 @app.route('/about')
+@login_required
 def about():
     return render_template('about.html')
 

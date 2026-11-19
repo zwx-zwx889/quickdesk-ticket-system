@@ -31,6 +31,14 @@ class FlaskTasksTestCase(unittest.TestCase):
         
         # Initialize test database
         self.init_test_db()
+        self.client.post(
+            '/login',
+            data={
+                'username': 'admin',
+                'password': 'Admin@123',
+            },
+            follow_redirects=True,
+        )
     
     def tearDown(self):
         """Clean up after tests."""
@@ -41,6 +49,51 @@ class FlaskTasksTestCase(unittest.TestCase):
         import shutil
         shutil.rmtree(self.test_dir)
 
+    def test_login_page_loads(self):
+        """Test that the login page loads."""
+        self.client.post('/logout')
+
+        response = self.client.get('/login')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '用户登录'.encode('utf-8'),
+            response.data,
+        )
+
+    def test_index_requires_login(self):
+        """Test that anonymous users cannot access tickets."""
+        self.client.post('/logout')
+
+        response = self.client.get(
+            '/',
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            '/login',
+            response.headers['Location'],
+        )
+
+    def test_invalid_login_is_rejected(self):
+        """Test that an invalid password is rejected."""
+        self.client.post('/logout')
+
+        response = self.client.post(
+            '/login',
+            data={
+                'username': 'admin',
+                'password': 'wrong-password',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '用户名或密码错误！'.encode('utf-8'),
+            response.data,
+        )
     def init_test_db(self):
         """Initialize the test database."""
         init_db()
@@ -469,18 +522,28 @@ class FlaskTasksTestCase(unittest.TestCase):
 
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""
-    
+
     def setUp(self):
         """Set up test fixtures."""
         self.test_dir = tempfile.mkdtemp()
         app.config['TESTING'] = True
         self.client = app.test_client()
-        
+
         self.original_cwd = os.getcwd()
         os.chdir(self.test_dir)
 
         # Initialize test database using the application schema
         init_db()
+
+        # Log in before testing protected UI pages
+        self.client.post(
+            '/login',
+            data={
+                'username': 'admin',
+                'password': 'Admin@123',
+            },
+            follow_redirects=True,
+        )
     
     def tearDown(self):
         """Clean up after tests."""

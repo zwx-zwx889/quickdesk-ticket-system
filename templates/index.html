@@ -16,13 +16,56 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav ms-auto align-items-lg-center">
                     <li class="nav-item">
-                        <a class="nav-link" href="/">工单管理</a>
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            工单管理
+                        </a>
                     </li>
+
                     <li class="nav-item">
-                        <a class="nav-link" href="/about">关于系统</a>
+                        <a class="nav-link" href="{{ url_for('about') }}">
+                            关于系统
+                        </a>
                     </li>
+
+                    {% if g.user %}
+                        <li class="nav-item">
+
+                            <span class="nav-link text-white">
+                            <i class="bi bi-person-circle me-1"></i>
+                            {{ g.user['display_name'] }}
+
+                            <span class="badge bg-light text-primary ms-1">
+                                {% if g.user['role'] == 'admin' %}
+                                    管理员
+                                {% elif g.user['role'] == 'requester' %}
+                                    提交人
+                                {% elif g.user['role'] == 'assignee' %}
+                                    处理人
+                                {% else %}
+                                    {{ g.user['role'] }}
+                                {% endif %}
+                            </span>
+                        </span>
+                    </li>
+
+                        <li class="nav-item ms-lg-2">
+                            <form
+                                    action="{{ url_for('auth.logout') }}"
+                                    method="post"
+                                    class="d-inline"
+                            >
+                                <button
+                                        type="submit"
+                                        class="btn btn-outline-light btn-sm"
+                                >
+                                    <i class="bi bi-box-arrow-right me-1"></i>
+                                    退出登录
+                                </button>
+                            </form>
+                        </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>
