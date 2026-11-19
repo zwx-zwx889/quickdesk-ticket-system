@@ -10,6 +10,12 @@ import os
 import sqlite3
 from app import app, init_db
 from contextlib import closing
+from quickdesk.recommendation import recommend_assignees
+from unittest.mock import patch
+from quickdesk.case_retrieval import (
+    find_similar_resolved_tickets,
+)
+
 
 class FlaskTasksTestCase(unittest.TestCase):
     """Test Flask application functionality."""
@@ -217,66 +223,195 @@ class FlaskTasksTestCase(unittest.TestCase):
         self.assertIn('SLA截止：'.encode('utf-8'), response.data)
 
     def test_ticket_status_workflow(self):
-        """Test ticket status workflow."""
+        """Test status flow with required resolution record."""
         self.client.post(
             '/add',
             data={'task': '状态流转测试工单'},
-            follow_redirects=True
+            follow_redirects=True,
         )
 
         with closing(sqlite3.connect('quickdesk.db')) as conn:
-            row = conn.execute(
-                'SELECT id FROM todos WHERE task = ?',
-                ('状态流转测试工单',)
+            ticket_id = conn.execute(
+                '''
+                SELECT id
+                FROM todos
+                WHERE task = ?
+                ''',
+                ('状态流转测试工单',),
+            ).fetchone()[0]
+
+            assignee = conn.execute(
+                '''
+                SELECT id, display_name
+                FROM users
+                WHERE username = ?
+                ''',
+                ('js-zhangwei123',),
             ).fetchone()
-            self.assertIsNotNone(row)
-            ticket_id = row[0]
+
+            self.assertIsNotNone(assignee)
+
+            conn.execute(
+                '''
+                UPDATE todos
+                SET assignee_id = ?,
+                    assignee = ?
+                WHERE id = ?
+                ''',
+                (
+                    assignee[0],
+                    assignee[1],
+                    ticket_id,
+                ),
+            )
+            conn.commit()
+
+        self.client.post('/logout')
+
+        login_response = self.client.post(
+            '/login',
+            data={
+                'username': 'js-zhangwei123',
+                'password': 'Qd@js-zhangwei123',
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(login_response.status_code, 200)
 
         # 待处理 -> 处理中
         response = self.client.post(
             f'/status/{ticket_id}',
             data={'status': 'in_progress'},
-            follow_redirects=True
+            follow_redirects=True,
         )
-        self.assertIn('处理中'.encode('utf-8'), response.data)
+        self.assertEqual(response.status_code, 200)
 
         with closing(sqlite3.connect('quickdesk.db')) as conn:
             status, completed = conn.execute(
-                'SELECT status, completed FROM todos WHERE id = ?',
-                (ticket_id,)
+                '''
+                SELECT status, completed
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
             ).fetchone()
+
             self.assertEqual(status, 'in_progress')
             self.assertEqual(completed, 0)
 
-        # 处理中 -> 已完成
-        self.client.post(
+        # 不能通过状态接口绕过解决记录
+        response = self.client.post(
             f'/status/{ticket_id}',
             data={'status': 'completed'},
-            follow_redirects=True
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '填写解决记录'.encode('utf-8'),
+            response.data,
         )
 
         with closing(sqlite3.connect('quickdesk.db')) as conn:
             status, completed = conn.execute(
-                'SELECT status, completed FROM todos WHERE id = ?',
-                (ticket_id,)
+                '''
+                SELECT status, completed
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
             ).fetchone()
-            self.assertEqual(status, 'completed')
-            self.assertEqual(completed, 1)
 
-        # 已完成 -> 待处理
+            self.assertEqual(status, 'in_progress')
+            self.assertEqual(completed, 0)
+
+        # 填写解决记录后完成工单
+        response = self.client.post(
+            f'/resolve/{ticket_id}',
+            data={
+                'root_cause': '认证服务连接超时',
+                'resolution': (
+                    '重启认证服务并检查连接状态，'
+                    '确认财务系统恢复正常登录。'
+                ),
+                'resolution_summary': (
+                    '恢复认证服务连接后登录正常'
+                ),
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '解决记录已保存'.encode('utf-8'),
+            response.data,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            result = conn.execute(
+                '''
+                SELECT status,
+                       completed,
+                       root_cause,
+                       resolution,
+                       resolution_summary,
+                       resolved_by_id,
+                       resolved_at
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()
+
+            self.assertEqual(result[0], 'completed')
+            self.assertEqual(result[1], 1)
+            self.assertEqual(
+                result[2],
+                '认证服务连接超时',
+            )
+            self.assertIn(
+                '重启认证服务',
+                result[3],
+            )
+            self.assertEqual(
+                result[4],
+                '恢复认证服务连接后登录正常',
+            )
+            self.assertEqual(
+                result[5],
+                assignee[0],
+            )
+            self.assertIsNotNone(result[6])
+
+        # 已完成 -> 待处理，历史解决记录仍然保留
         self.client.post(
             f'/status/{ticket_id}',
             data={'status': 'pending'},
-            follow_redirects=True
+            follow_redirects=True,
         )
 
         with closing(sqlite3.connect('quickdesk.db')) as conn:
-            status, completed = conn.execute(
-                'SELECT status, completed FROM todos WHERE id = ?',
-                (ticket_id,)
+            result = conn.execute(
+                '''
+                SELECT status,
+                       completed,
+                       root_cause,
+                       resolution
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
             ).fetchone()
-            self.assertEqual(status, 'pending')
-            self.assertEqual(completed, 0)
+
+            self.assertEqual(result[0], 'pending')
+            self.assertEqual(result[1], 0)
+            self.assertEqual(
+                result[2],
+                '认证服务连接超时',
+            )
+            self.assertIn(
+                '重启认证服务',
+                result[3],
+            )
 
     def test_sla_status_display(self):
         """Test normal and overdue SLA display."""
@@ -530,18 +665,34 @@ class FlaskTasksTestCase(unittest.TestCase):
                                   follow_redirects=True)
         self.assertIn(b'Child Task', response.data)
         self.assertIn(b'Parent Task', response.data)
-        
-        # Test toggle with children
-        response = self.client.get(f'/toggle_with_children/{parent_id}', follow_redirects=True)
+
+        # 父子工单不能绕过解决记录批量完成
+        response = self.client.get(
+            f'/toggle_with_children/{parent_id}',
+            follow_redirects=True,
+        )
         self.assertEqual(response.status_code, 200)
-        
-        # Verify both tasks are completed
+        self.assertIn(
+            '批量完成已停用'.encode('utf-8'),
+            response.data,
+        )
+
+        # 验证父子工单均未被直接完成
         with closing(sqlite3.connect('quickdesk.db')) as conn:
-            cursor = conn.execute('SELECT completed FROM todos WHERE id IN (?, ?)', 
-                                (parent_id, parent_id + 1))
-            results = cursor.fetchall()
+            results = conn.execute(
+                '''
+                SELECT completed
+                FROM todos
+                WHERE id IN (?, ?)
+                ''',
+                (
+                    parent_id,
+                    parent_id + 1,
+                ),
+            ).fetchall()
+
             for result in results:
-                self.assertTrue(result[0])
+                self.assertEqual(result[0], 0)
     
     def test_database_structure(self):
         """Test that database has correct structure."""
@@ -556,8 +707,20 @@ class FlaskTasksTestCase(unittest.TestCase):
             cursor = conn.execute("PRAGMA table_info(todos)")
             columns = cursor.fetchall()
             column_names = [col[1] for col in columns]
-            
-            expected_columns = ['id', 'task', 'completed', 'parent_id', 'created_at', 'updated_at']
+
+            expected_columns = [
+                'id',
+                'task',
+                'completed',
+                'parent_id',
+                'root_cause',
+                'resolution',
+                'resolution_summary',
+                'resolved_by_id',
+                'resolved_at',
+                'created_at',
+                'updated_at',
+            ]
             for col in expected_columns:
                 self.assertIn(col, column_names)
     
@@ -1153,6 +1316,350 @@ class FlaskTasksTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_recommendation_prefers_matching_skills(self):
+        """Test that matching skills improve assignment ranking."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '账号登录权限认证异常',
+                'description': (
+                    '用户无法进入应用系统，'
+                    '需要检查账号登录和权限认证'
+                ),
+                'priority': 'high',
+                'requester': '王芳',
+            },
+            follow_redirects=True,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            ticket_id = conn.execute(
+                '''
+                SELECT id
+                FROM todos
+                WHERE task = ?
+                ''',
+                ('账号登录权限认证异常',),
+            ).fetchone()[0]
+
+        recommendations = recommend_assignees(
+            ticket_id,
+            limit=3,
+        )
+
+        self.assertTrue(recommendations)
+        self.assertEqual(
+            recommendations[0]['display_name'],
+            '张伟',
+        )
+        self.assertGreater(
+            recommendations[0]['score'],
+            0,
+        )
+        self.assertTrue(
+            any(
+                '技能匹配' in reason
+                for reason in recommendations[0]['reasons']
+            )
+        )
+
+
+    def test_admin_sees_assignment_recommendations(self):
+        """Test that recommendations appear for unassigned tickets."""
+        self.client.post(
+            '/add',
+            data={
+                'task': '应用系统无法登录',
+                'description': '用户账号认证失败',
+                'priority': 'medium',
+                'requester': '王芳',
+            },
+            follow_redirects=True,
+        )
+
+        response = self.client.get(
+            '/',
+            query_string={
+                'assignment': 'unassigned',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            '智能推荐处理人'.encode('utf-8'),
+            response.data,
+        )
+        self.assertIn(
+            '推荐结果仅供参考'.encode('utf-8'),
+            response.data,
+        )
+        self.assertIn(
+            '张伟'.encode('utf-8'),
+            response.data,
+        )
+    def _create_ai_assigned_ticket(self):
+        """Create a ticket assigned to Zhang Wei."""
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            requester = conn.execute(
+                '''
+                SELECT id, display_name
+                FROM users
+                WHERE username = ?
+                ''',
+                ('cw-wangfang123',),
+            ).fetchone()
+
+            assignee = conn.execute(
+                '''
+                SELECT id, display_name
+                FROM users
+                WHERE username = ?
+                ''',
+                ('js-zhangwei123',),
+            ).fetchone()
+
+            cursor = conn.execute(
+                '''
+                INSERT INTO todos (
+                    task,
+                    description,
+                    priority,
+                    status,
+                    requester,
+                    assignee,
+                    requester_id,
+                    assignee_id,
+                    completed
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ''',
+                (
+                    '财务系统登录异常',
+                    '正确账号密码仍然无法登录财务系统',
+                    'high',
+                    'in_progress',
+                    requester[1],
+                    assignee[1],
+                    requester[0],
+                    assignee[0],
+                ),
+            )
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def _login_as_demo_assignee(
+        self,
+        username='js-zhangwei123',
+    ):
+        self.client.post('/logout')
+
+        return self.client.post(
+            '/login',
+            data={
+                'username': username,
+                'password': f'Qd@{username}',
+            },
+            follow_redirects=True,
+        )
+
+    def _fake_resolution_result(self):
+        return {
+            'available': True,
+            'status': 'success',
+            'message': '测试处理方案已生成',
+            'model': 'deepseek-flash',
+            'plan': {
+                'likely_causes': [
+                    '认证服务连接异常',
+                ],
+                'clarification_questions': [
+                    '是否有其他用户出现相同问题？',
+                ],
+                'diagnostic_steps': [
+                    '检查账号锁定状态',
+                    '检查认证服务日志',
+                ],
+                'recommended_solution': (
+                    '确认故障原因后恢复认证服务连接。'
+                ),
+                'risks_and_rollback': [
+                    '修改前备份原配置。',
+                ],
+                'transfer_advice': {
+                    'needed': False,
+                    'department': '',
+                    'reason': '',
+                },
+                'referenced_case_ids': [],
+                'completion_draft': (
+                    '检查认证服务并恢复系统登录。'
+                ),
+                'confidence': '中',
+            },
+        }
+
+    def test_similar_resolved_ticket_retrieval(self):
+        """Test retrieval of similar resolved tickets."""
+        ticket_id = self._create_ai_assigned_ticket()
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            assignee = conn.execute(
+                '''
+                SELECT id, display_name
+                FROM users
+                WHERE username = ?
+                ''',
+                ('js-zhangwei123',),
+            ).fetchone()
+
+            conn.execute(
+                '''
+                INSERT INTO todos (
+                    task,
+                    description,
+                    priority,
+                    status,
+                    requester,
+                    assignee,
+                    assignee_id,
+                    completed,
+                    root_cause,
+                    resolution,
+                    resolution_summary,
+                    resolved_by_id,
+                    resolved_at
+                )
+                VALUES (
+                    ?, ?, ?, 'completed',
+                    ?, ?, ?, 1,
+                    ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP
+                )
+                ''',
+                (
+                    '财务系统认证登录失败',
+                    '财务人员无法通过认证服务登录',
+                    'high',
+                    '王芳',
+                    assignee[1],
+                    assignee[0],
+                    '认证服务连接超时',
+                    '恢复认证服务连接并验证登录',
+                    '恢复认证服务后登录正常',
+                    assignee[0],
+                ),
+            )
+            conn.commit()
+
+            conn.row_factory = sqlite3.Row
+            todo = conn.execute(
+                '''
+                SELECT *
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()
+
+        cases = find_similar_resolved_tickets(
+            todo,
+            limit=3,
+        )
+
+        self.assertTrue(cases)
+        self.assertEqual(
+            cases[0]['task'],
+            '财务系统认证登录失败',
+        )
+        self.assertGreater(
+            cases[0]['similarity_score'],
+            0,
+        )
+        self.assertIn(
+            '恢复认证服务',
+            cases[0]['resolution'],
+        )
+
+    def test_only_current_assignee_can_use_ai_copilot(self):
+        """Test resolution copilot role and ownership checks."""
+        ticket_id = self._create_ai_assigned_ticket()
+
+        self._login_as_demo_assignee(
+            'js-liqiang123'
+        )
+
+        with patch(
+            'quickdesk.resolution_routes.'
+            'generate_resolution_plan'
+        ) as mocked_generate:
+            response = self.client.post(
+                f'/assistant/resolution/{ticket_id}',
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_generate.assert_not_called()
+
+    def test_resolution_plan_is_cached(self):
+        """Test that cached plans avoid repeated API calls."""
+        ticket_id = self._create_ai_assigned_ticket()
+        self._login_as_demo_assignee()
+
+        with patch(
+            'quickdesk.resolution_routes.'
+            'generate_resolution_plan',
+            return_value=self._fake_resolution_result(),
+        ) as first_call:
+            response = self.client.post(
+                f'/assistant/resolution/{ticket_id}',
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        first_call.assert_called_once()
+
+        with patch(
+            'quickdesk.resolution_routes.'
+            'generate_resolution_plan',
+            side_effect=AssertionError(
+                '不应再次调用DeepSeek'
+            ),
+        ) as second_call:
+            response = self.client.post(
+                f'/assistant/resolution/{ticket_id}',
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        second_call.assert_not_called()
+        self.assertIn(
+            '未产生新的 DeepSeek 调用'.encode(
+                'utf-8'
+            ),
+            response.data,
+        )
+        self.assertIn(
+            'DeepSeek 故障处理助手'.encode(
+                'utf-8'
+            ),
+            response.data,
+        )
+
+        with closing(sqlite3.connect('quickdesk.db')) as conn:
+            cache_count = conn.execute(
+                '''
+                SELECT COUNT(*)
+                FROM ai_resolution_plans
+                WHERE todo_id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(cache_count, 1)
+
+
 
 class BasicUITestCase(unittest.TestCase):
     """Test basic UI components."""

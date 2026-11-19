@@ -61,34 +61,29 @@
                             </a>
                         </li>
 
+                         <span class="nav-link text-white">
+
                         <li class="nav-item">
+    <span class="nav-link text-white">
+        <i class="bi bi-person-circle me-1"></i>
 
-                            <span class="nav-link text-white">
-                            <i class="bi bi-person-circle me-1"></i>
-                            {{ g.user['display_name'] }}
+        <span class="badge bg-light text-primary me-1">
+            {% if g.user['role'] == 'admin' %}
+                管理员
+            {% elif g.user['role'] == 'requester' %}
+                提交人
+            {% elif g.user['role'] == 'assignee' %}
+                处理人
+            {% else %}
+                {{ g.user['role'] }}
+            {% endif %}
+        </span>
 
-                            <span class="nav-link text-white">
-                            <i class="bi bi-person-circle me-1"></i>
-
-                            <span class="badge bg-light text-primary me-1">
-                                {% if g.user['role'] == 'admin' %}
-                                    管理员
-                                {% elif g.user['role'] == 'requester' %}
-                                    提交人
-                                {% elif g.user['role'] == 'assignee' %}
-                                    处理人
-                                {% else %}
-                                    {{ g.user['role'] }}
-                                {% endif %}
-                            </span>
-
-                            {{ g.user['department'] or '未设置部门' }}
-                            ·
-                            {{ g.user['display_name'] }}
-                        </span>
-                    </li>
-
-                        <li class="nav-item ms-lg-2">
+        {{ g.user['department'] or '未设置部门' }}
+        ·
+        {{ g.user['display_name'] }}
+    </span>
+</li>
                             <form
                                     action="{{ url_for('auth.logout') }}"
                                     method="post"
@@ -453,12 +448,22 @@
                                                         </button>
 
                                                     {% elif todo.status == 'in_progress' %}
-                                                        <input type="hidden" name="status" value="completed">
-                                                        <button type="submit"
-                                                                class="btn btn-sm btn-outline-success">
-                                                            <i class="bi bi-check-circle"></i>
-                                                            完成工单
-                                                        </button>
+                                                        {% elif todo.status == 'in_progress' %}
+                                                            {% if g.user['role'] == 'assignee'
+                                                                  and todo.assignee_id == g.user['id'] %}
+                                                                <a href="{{ url_for(
+                                                                            'resolve_ticket',
+                                                                            todo_id=todo.id
+                                                                        ) }}"
+                                                                   class="btn btn-sm btn-outline-success">
+                                                                    <i class="bi bi-journal-check"></i>
+                                                                    填写解决记录
+                                                                </a>
+                                                            {% else %}
+                                                                <span class="badge bg-light text-muted border">
+                                                                    等待处理人填写解决记录
+                                                                </span>
+                                                            {% endif %}
 
                                                     {% else %}
                                                         <input type="hidden" name="status" value="in_progress">
@@ -578,6 +583,110 @@
 
                                                     {% if g.user['role'] == 'admin'
                                                           and todo.status != 'completed' %}
+                                                    {% set recommendations =
+    assignment_recommendations.get(
+        todo.id,
+        []
+    )
+%}
+
+{% if todo.assignee_id is none
+      and recommendations %}
+    <div class="mt-3">
+        <button
+            type="button"
+            class="btn btn-sm btn-outline-success"
+            data-bs-toggle="collapse"
+            data-bs-target="#recommendations-{{ todo.id }}"
+            aria-expanded="false"
+        >
+            <i class="bi bi-stars"></i>
+            智能推荐处理人
+        </button>
+
+        <div class="collapse mt-2"
+             id="recommendations-{{ todo.id }}">
+            <div class="card card-body bg-light">
+                <div class="small text-muted mb-2">
+                    系统根据技能、部门、历史经验和当前负载综合排序。
+                    推荐结果仅供参考，最终分派由管理员确认。
+                </div>
+
+                <div class="row g-2">
+                    {% for recommendation
+                          in recommendations %}
+                        <div class="col-lg-4">
+                            <div class="card h-100 {{
+                                'border-success'
+                                if loop.first
+                                else ''
+                            }}">
+                                <div class="card-body p-3">
+                                    <div class="d-flex
+                                                justify-content-between
+                                                align-items-start">
+                                        <div>
+                                            <strong>
+                                                {{ recommendation.display_name }}
+                                            </strong>
+
+                                            {% if loop.first %}
+                                                <span class="badge
+                                                             bg-success
+                                                             ms-1">
+                                                    首选
+                                                </span>
+                                            {% endif %}
+                                        </div>
+
+                                        <span class="badge bg-primary">
+                                            {{ recommendation.score }}分
+                                        </span>
+                                    </div>
+
+                                    <div class="small text-muted mt-1">
+                                        {{ recommendation.department }}
+                                    </div>
+
+                                    <div class="small mt-2">
+                                        当前负载：
+                                        {{ recommendation.active_count }}
+                                        /
+                                        {{
+                                            recommendation.max_active_tickets
+                                        }}
+                                    </div>
+
+                                    <ul class="small mb-3 mt-2 ps-3">
+                                        {% for reason
+                                              in recommendation.reasons %}
+                                            <li>{{ reason }}</li>
+                                        {% endfor %}
+                                    </ul>
+
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm
+                                               btn-outline-primary
+                                               w-100"
+                                        onclick="
+                                            document.getElementById(
+                                                'assignee-{{ todo.id }}'
+                                            ).value =
+                                                '{{ recommendation.user_id }}';
+                                        "
+                                    >
+                                        选择此处理人
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
                                                         <form
                                                             action="{{ url_for(
                                                                 'assign_ticket',
@@ -657,6 +766,258 @@
                                                         {% endif %}
                                                     {% endif %}
                                                 </div>
+                                                                                {% set can_use_ai =
+                                                                                    g.user['role'] == 'admin'
+                                                                                    and todo.assignee_id is none
+                                                                                    and assignment_filter == 'unassigned'
+                                                                                %}
+
+                                        {% if can_use_ai %}
+                                            <div class="mt-3">
+                                                <form
+                                                    method="post"
+                                                    action="{{ url_for(
+                                                        'ai.analyze_ticket_route',
+                                                        todo_id=todo.id
+                                                    ) }}"
+                                                    class="d-inline"
+                                                >
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-sm btn-outline-primary"
+                                                    >
+                                                        <i class="bi bi-robot"></i>
+                                                        {% if selected_ai_ticket == todo.id
+                                                              and ai_analysis %}
+                                                            查看 AI 分析
+                                                        {% else %}
+                                                            AI 深度分析
+                                                        {% endif %}
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% endif %}
+
+                                        {% if selected_ai_ticket == todo.id
+                                              and ai_analysis %}
+                                            {% set analysis =
+                                                ai_analysis['analysis'] %}
+
+                                            <div class="card border-primary mt-3">
+                                                <div class="card-header
+                                                            bg-primary
+                                                            text-white
+                                                            d-flex
+                                                            justify-content-between
+                                                            align-items-center">
+                                                    <span>
+                                                        <i class="bi bi-robot me-1"></i>
+                                                        AI 工单分析
+                                                    </span>
+
+                                                    <span class="badge bg-light
+                                                                       text-primary">
+                                                        缓存结果
+                                                    </span>
+                                                </div>
+
+                                                <div class="card-body">
+                                                    <div class="alert
+                                                                alert-light
+                                                                border
+                                                                small">
+                                                        AI 分析仅作为辅助建议，
+                                                        最终分类、分派和处理决定
+                                                        仍由工作人员确认。
+                                                    </div>
+
+                                                    <div class="row g-3">
+                                                        <div class="col-md-4">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                问题类别
+                                                            </div>
+                                                            <strong>
+                                                                {{
+                                                                    analysis[
+                                                                        'category'
+                                                                    ]
+                                                                }}
+                                                            </strong>
+                                                        </div>
+
+                                                        <div class="col-md-4">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                建议部门
+                                                            </div>
+                                                            <strong>
+                                                                {{
+                                                                    analysis[
+                                                                        'recommended_department'
+                                                                    ]
+                                                                }}
+                                                            </strong>
+                                                        </div>
+
+                                                        <div class="col-md-4">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                紧急程度
+                                                            </div>
+                                                            <span class="badge
+                                                                {% if analysis[
+                                                                    'urgency_assessment'
+                                                                ] == '紧急' %}
+                                                                    bg-danger
+                                                                {% elif analysis[
+                                                                    'urgency_assessment'
+                                                                ] == '较高' %}
+                                                                    bg-warning
+                                                                    text-dark
+                                                                {% else %}
+                                                                    bg-info
+                                                                    text-dark
+                                                                {% endif %}
+                                                            ">
+                                                                {{
+                                                                    analysis[
+                                                                        'urgency_assessment'
+                                                                    ]
+                                                                }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="col-12">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                问题摘要
+                                                            </div>
+                                                            <div>
+                                                                {{
+                                                                    analysis[
+                                                                        'summary'
+                                                                    ]
+                                                                }}
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="col-md-6">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                重复问题风险
+                                                            </div>
+                                                            <span class="badge
+                                                                {% if analysis[
+                                                                    'duplicate_risk'
+                                                                ] == '高' %}
+                                                                    bg-danger
+                                                                {% elif analysis[
+                                                                    'duplicate_risk'
+                                                                ] == '中' %}
+                                                                    bg-warning
+                                                                    text-dark
+                                                                {% else %}
+                                                                    bg-success
+                                                                {% endif %}
+                                                            ">
+                                                                {{
+                                                                    analysis[
+                                                                        'duplicate_risk'
+                                                                    ]
+                                                                }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="col-md-6">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                SLA 风险
+                                                            </div>
+                                                            <span class="badge
+                                                                {% if analysis[
+                                                                    'sla_risk'
+                                                                ] == '高' %}
+                                                                    bg-danger
+                                                                {% elif analysis[
+                                                                    'sla_risk'
+                                                                ] == '中' %}
+                                                                    bg-warning
+                                                                    text-dark
+                                                                {% else %}
+                                                                    bg-success
+                                                                {% endif %}
+                                                            ">
+                                                                {{
+                                                                    analysis[
+                                                                        'sla_risk'
+                                                                    ]
+                                                                }}
+                                                            </span>
+                                                        </div>
+
+                                                        <div class="col-12">
+                                                            <div class="text-muted
+                                                                        small
+                                                                        mb-1">
+                                                                关键词
+                                                            </div>
+
+                                                            {% if analysis[
+                                                                'keywords'
+                                                            ] %}
+                                                                {% for keyword in
+                                                                    analysis[
+                                                                        'keywords'
+                                                                    ] %}
+                                                                    <span class="badge
+                                                                                 bg-secondary
+                                                                                 me-1">
+                                                                        {{
+                                                                            keyword
+                                                                        }}
+                                                                    </span>
+                                                                {% endfor %}
+                                                            {% else %}
+                                                                <span class="text-muted">
+                                                                    暂无关键词
+                                                                </span>
+                                                            {% endif %}
+                                                        </div>
+
+                                                        <div class="col-12">
+                                                            <div class="text-muted
+                                                                        small">
+                                                                AI 判断依据
+                                                            </div>
+                                                            <div>
+                                                                {{
+                                                                    analysis[
+                                                                        'reasoning'
+                                                                    ]
+                                                                }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="text-muted
+                                                                small
+                                                                mt-3">
+                                                        分析模型：
+                                                        {{ ai_analysis['model'] }}
+                                                        · 分析时间：
+                                                        {{
+                                                            ai_analysis[
+                                                                'created_at'
+                                                            ]
+                                                        }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                            {% include '_resolution_assistant.html' %}
+
                                         {% if can_edit_ticket(todo, g.user) %}
                                             <div class="edit-form" style="display: none;">
                                                 <form action="{{ url_for('edit_todo', todo_id=todo.id) }}" method="post" class="d-flex">

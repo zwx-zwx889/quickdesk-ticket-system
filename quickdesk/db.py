@@ -30,6 +30,11 @@ TODO_COLUMNS = {
     "assignee_id": "INTEGER",
     "sla_deadline": "TIMESTAMP",
     "parent_id": "INTEGER",
+    "root_cause": "TEXT NOT NULL DEFAULT ''",
+    "resolution": "TEXT NOT NULL DEFAULT ''",
+    "resolution_summary": "TEXT NOT NULL DEFAULT ''",
+    "resolved_by_id": "INTEGER",
+    "resolved_at": "TIMESTAMP",
 }
 
 
@@ -324,12 +329,20 @@ def init_db():
                 sla_deadline TIMESTAMP,
                 completed BOOLEAN DEFAULT FALSE,
                 parent_id INTEGER,
+                root_cause TEXT NOT NULL DEFAULT '',
+                resolution TEXT NOT NULL DEFAULT '',
+                resolution_summary TEXT NOT NULL DEFAULT '',
+                resolved_by_id INTEGER,
+                resolved_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (requester_id)
                     REFERENCES users (id),
-                FOREIGN KEY (assignee_id)
+                                FOREIGN KEY (assignee_id)
                     REFERENCES users (id),
+                FOREIGN KEY (resolved_by_id)
+                    REFERENCES users (id)
+                    ON DELETE SET NULL,
                 FOREIGN KEY (parent_id)
                     REFERENCES todos (id)
                     ON DELETE CASCADE
@@ -396,6 +409,87 @@ def init_db():
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id INTEGER NOT NULL,
+                requested_by_id INTEGER,
+                content_hash TEXT NOT NULL,
+                model TEXT NOT NULL,
+                analysis_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (todo_id)
+                    REFERENCES todos (id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_id)
+                    REFERENCES users (id)
+                    ON DELETE SET NULL,
+                UNIQUE (
+                    todo_id,
+                    content_hash,
+                    model
+                )
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_ai_analyses_todo
+            ON ai_analyses (
+                todo_id,
+                created_at
+            )
+            """
+        )
+
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS
+            ai_resolution_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id INTEGER NOT NULL,
+                requested_by_id INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                case_context_hash TEXT NOT NULL,
+                model TEXT NOT NULL,
+                plan_json TEXT NOT NULL,
+                created_at TIMESTAMP
+                    DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+                    DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (todo_id)
+                    REFERENCES todos (id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_id)
+                    REFERENCES users (id)
+                    ON DELETE CASCADE,
+                UNIQUE (
+                    todo_id,
+                    content_hash,
+                    case_context_hash,
+                    model
+                )
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_ai_resolution_plans_todo
+            ON ai_resolution_plans (
+                todo_id,
+                created_at
+            )
+            """
+        )
+
+
         _ensure_user_columns(conn)
         _ensure_todo_columns(conn)
         _migrate_demo_accounts(conn)
@@ -432,6 +526,18 @@ def init_db():
             ON todos (created_at)
             """
         )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_todos_resolved_at
+            ON todos (
+                status,
+                resolved_at
+            )
+            """
+        )
+
 
         conn.execute(
             """

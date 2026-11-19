@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>填写解决记录 - QuickDesk</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+          rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}"
+          rel="stylesheet">
+</head>
+
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand"
+           href="{{ url_for('index') }}">
+            <i class="bi bi-ticket-detailed me-2"></i>
+            QuickDesk
+        </a>
+
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-white">
+                <i class="bi bi-person-circle me-1"></i>
+                处理人 ·
+                {{ g.user['department'] or '未设置部门' }}
+                · {{ g.user['display_name'] }}
+            </span>
+
+            <a href="{{ url_for('index') }}"
+               class="btn btn-outline-light">
+                <i class="bi bi-arrow-left"></i>
+                返回工单列表
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main class="container my-5">
+    <div class="row">
+        <div class="col-lg-9 mx-auto">
+
+            {% with messages =
+                get_flashed_messages(
+                    with_categories=true
+                )
+            %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert
+                            {% if category == 'error' %}
+                                alert-danger
+                            {% elif category == 'warning' %}
+                                alert-warning
+                            {% elif category == 'info' %}
+                                alert-info
+                            {% else %}
+                                alert-success
+                            {% endif %}
+                            alert-dismissible
+                            fade
+                            show"
+                             role="alert">
+                            {{ message }}
+
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="alert">
+                            </button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="mb-4">
+                <h1>
+                    <i class="bi bi-check2-circle
+                              text-success"></i>
+                    填写解决记录
+                </h1>
+
+                <p class="text-muted mb-0">
+                    记录根本原因和解决方法，
+                    形成可供后续相似工单参考的历史案例。
+                </p>
+            </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white">
+                    <strong>
+                        <i class="bi bi-ticket-detailed me-1"></i>
+                        工单 #{{ todo.id }}
+                    </strong>
+                </div>
+
+                <div class="card-body">
+                    <h4>{{ todo.task }}</h4>
+
+                    <p class="text-muted">
+                        {{ todo.description or '未填写问题描述' }}
+                    </p>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="small text-muted">
+                                提交人
+                            </div>
+                            <strong>
+                                {{ todo.requester or '未记录' }}
+                            </strong>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="small text-muted">
+                                当前处理人
+                            </div>
+                            <strong>
+                                {{ todo.assignee }}
+                            </strong>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="small text-muted">
+                                SLA 截止时间
+                            </div>
+                            <strong>
+                                {{
+                                    todo.sla_deadline
+                                    or '未设置'
+                                }}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <form method="post"
+                  action="{{ url_for(
+                      'resolve_ticket',
+                      todo_id=todo.id
+                  ) }}"
+                  class="card shadow-sm">
+
+                <div class="card-body p-4">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-1"></i>
+                        以下内容将进入历史解决案例库，
+                        后续由 DeepSeek 故障处理助手检索和参考。
+                        请填写实际处理结果，不要录入密码、密钥等敏感信息。
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="root_cause"
+                               class="form-label fw-semibold">
+                            根本原因
+                            <span class="text-danger">*</span>
+                        </label>
+
+                        <textarea class="form-control"
+                                  id="root_cause"
+                                  name="root_cause"
+                                  rows="3"
+                                  minlength="3"
+                                  required
+                                  placeholder="例如：统一认证服务连接超时，导致财务系统无法完成身份验证">{{ root_cause if root_cause is defined else todo.root_cause }}</textarea>
+
+                        <div class="form-text">
+                            说明问题最终被确认的真实原因。
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="resolution"
+                               class="form-label fw-semibold">
+                            解决方案与处理步骤
+                            <span class="text-danger">*</span>
+                        </label>
+
+                        <textarea class="form-control"
+                                  id="resolution"
+                                  name="resolution"
+                                  rows="7"
+                                  minlength="5"
+                                  required
+                                  placeholder="请按顺序记录排查过程、实际操作、验证方法和最终结果">{{ resolution if resolution is defined else todo.resolution }}</textarea>
+
+                        <div class="form-text">
+                            建议包含排查步骤、采取的操作、
+                            验证结果以及需要注意的事项。
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="resolution_summary"
+                               class="form-label fw-semibold">
+                            解决摘要
+                            <span class="text-muted">
+                                （可选）
+                            </span>
+                        </label>
+
+                        <textarea class="form-control"
+                                  id="resolution_summary"
+                                  name="resolution_summary"
+                                  rows="2"
+                                  maxlength="200"
+                                  placeholder="用一句话概括最终解决方法">{{ resolution_summary if resolution_summary is defined else todo.resolution_summary }}</textarea>
+
+                        <div class="form-text">
+                            最多200个字符；不填写时，
+                            系统将根据解决方案自动截取摘要。
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-3 bg-light">
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="confirm_resolution"
+                                   required>
+
+                            <label class="form-check-label"
+                                   for="confirm_resolution">
+                                我确认以上记录来源于实际处理过程，
+                                工单问题已经解决。
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-footer
+                            bg-white
+                            d-flex
+                            justify-content-end
+                            gap-2
+                            p-3">
+                    <a href="{{ url_for('index') }}"
+                       class="btn btn-outline-secondary">
+                        取消
+                    </a>
+
+                    <button type="submit"
+                            class="btn btn-success">
+                        <i class="bi bi-check-circle me-1"></i>
+                        保存解决记录并完成工单
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+</script>
+</body>
+</html>

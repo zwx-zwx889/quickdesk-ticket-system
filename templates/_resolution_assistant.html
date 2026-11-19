@@ -1,0 +1,278 @@
+{% set can_use_resolution_assistant =
+    g.user['role'] == 'assignee'
+    and todo.assignee_id == g.user['id']
+    and todo.status != 'completed'
+%}
+
+{% if can_use_resolution_assistant %}
+    <div class="mt-3">
+        <form method="post"
+              action="{{ url_for(
+                  'resolution_ai.generate_ticket_resolution',
+                  todo_id=todo.id
+              ) }}"
+              class="d-inline">
+
+            <button type="submit"
+                    class="btn btn-sm btn-outline-info">
+                <i class="bi bi-tools me-1"></i>
+
+                {% if selected_assistant_ticket == todo.id
+                      and resolution_assistance %}
+                    查看 AI 处理方案
+                {% else %}
+                    AI 故障处理助手
+                {% endif %}
+            </button>
+        </form>
+    </div>
+{% endif %}
+
+{% if selected_assistant_ticket == todo.id
+      and resolution_assistance %}
+
+    {% set plan = resolution_assistance['plan'] %}
+    {% set cases = resolution_assistance['cases'] %}
+    {% set transfer = plan['transfer_advice'] %}
+
+    <div class="card border-info mt-3">
+        <div class="card-header
+                    bg-info
+                    bg-opacity-10
+                    d-flex
+                    justify-content-between
+                    align-items-center">
+
+            <strong>
+                <i class="bi bi-tools me-1"></i>
+                DeepSeek 故障处理助手
+            </strong>
+
+            <div>
+                <span class="badge bg-info text-dark">
+                    可信度：{{ plan['confidence'] }}
+                </span>
+
+                <span class="badge bg-light
+                                   text-secondary
+                                   border">
+                    历史案例：{{ cases|length }}
+                </span>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div class="alert alert-warning small">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                以下内容是结合当前工单和历史案例生成的辅助建议。
+                处理人必须先验证再执行，不得直接复制未经确认的结论。
+            </div>
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-lightbulb me-1"></i>
+                    可能原因
+                </h6>
+
+                {% if plan['likely_causes'] %}
+                    <ul class="mb-0">
+                        {% for cause in plan['likely_causes'] %}
+                            <li>{{ cause }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <span class="text-muted">
+                        暂无明确原因，需要进一步确认。
+                    </span>
+                {% endif %}
+            </div>
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-question-circle me-1"></i>
+                    建议向提交人确认
+                </h6>
+
+                {% if plan['clarification_questions'] %}
+                    <ul class="mb-0">
+                        {% for question in
+                            plan['clarification_questions'] %}
+                            <li>{{ question }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <span class="text-muted">
+                        当前没有额外确认问题。
+                    </span>
+                {% endif %}
+            </div>
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-list-ol me-1"></i>
+                    建议诊断步骤
+                </h6>
+
+                {% if plan['diagnostic_steps'] %}
+                    <ol class="mb-0">
+                        {% for step in
+                            plan['diagnostic_steps'] %}
+                            <li class="mb-1">
+                                {{ step }}
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% else %}
+                    <span class="text-muted">
+                        暂无可执行诊断步骤。
+                    </span>
+                {% endif %}
+            </div>
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-wrench-adjustable me-1"></i>
+                    推荐解决思路
+                </h6>
+
+                <div class="border rounded bg-light p-3">
+                    {{
+                        plan['recommended_solution']
+                        or '需要完成进一步诊断后确定解决方法。'
+                    }}
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-shield-exclamation me-1"></i>
+                    风险与回退措施
+                </h6>
+
+                {% if plan['risks_and_rollback'] %}
+                    <ul class="mb-0">
+                        {% for risk in
+                            plan['risks_and_rollback'] %}
+                            <li>{{ risk }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <span class="text-muted">
+                        未识别到特殊操作风险。
+                    </span>
+                {% endif %}
+            </div>
+
+            {% if transfer['needed'] %}
+                <div class="alert alert-warning">
+                    <strong>
+                        <i class="bi bi-arrow-left-right me-1"></i>
+                        AI 建议考虑转交
+                    </strong>
+
+                    <div class="mt-2">
+                        建议部门：
+                        {{
+                            transfer['department']
+                            or '由管理员决定'
+                        }}
+                    </div>
+
+                    <div>
+                        判断理由：
+                        {{
+                            transfer['reason']
+                            or '当前问题可能超出处理范围'
+                        }}
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-success">
+                    <i class="bi bi-person-check me-1"></i>
+                    当前信息下，AI 暂未建议转交。
+                </div>
+            {% endif %}
+
+            <div class="mb-4">
+                <h6>
+                    <i class="bi bi-journal-text me-1"></i>
+                    相似历史案例
+                </h6>
+
+                {% if cases %}
+                    <div class="row g-2">
+                        {% for case in cases %}
+                            <div class="col-lg-4">
+                                <div class="card h-100">
+                                    <div class="card-body p-3">
+                                        <div class="d-flex
+                                                    justify-content-between
+                                                    mb-2">
+                                            <strong>
+                                                #{{ case['id'] }}
+                                                {{ case['task'] }}
+                                            </strong>
+
+                                            <span class="badge bg-secondary">
+                                                {{
+                                                    case[
+                                                        'similarity_score'
+                                                    ]
+                                                }}%
+                                            </span>
+                                        </div>
+
+                                        <div class="small mb-2">
+                                            <span class="text-muted">
+                                                根本原因：
+                                            </span>
+                                            {{ case['root_cause'] }}
+                                        </div>
+
+                                        <div class="small">
+                                            <span class="text-muted">
+                                                历史解决方法：
+                                            </span>
+                                            {{ case['resolution'] }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-muted">
+                        当前没有足够相似且包含解决记录的历史案例，
+                        本次方案主要依据当前工单信息生成。
+                    </div>
+                {% endif %}
+            </div>
+
+            <div>
+                <h6>
+                    <i class="bi bi-file-earmark-check me-1"></i>
+                    完成摘要草稿
+                </h6>
+
+                <div class="border rounded p-3">
+                    {{
+                        plan['completion_draft']
+                        or '完成实际处理后再填写解决摘要。'
+                    }}
+                </div>
+
+                <div class="form-text">
+                    该草稿不能自动完成工单，
+                    必须由处理人核对实际处理结果。
+                </div>
+            </div>
+
+            <div class="small text-muted mt-3">
+                模型：{{ resolution_assistance['model'] }}
+                · 生成时间：
+                {{ resolution_assistance['created_at'] }}
+                · 已启用缓存
+            </div>
+        </div>
+    </div>
+{% endif %}

@@ -26,6 +26,7 @@ ACTION_LABELS = {
     'transfer_approved': '批准转交',
     'transfer_rejected': '拒绝转交',
     'status_changed': '更新状态',
+    'resolved': '解决工单',
     'deleted': '删除工单',
 }
 

@@ -12,6 +12,13 @@ from quickdesk.audit import (
     audit_bp,
     record_ticket_action,
 )
+from quickdesk.case_retrieval import (
+    find_similar_resolved_tickets,
+)
+from quickdesk.resolution_routes import (
+    resolution_ai_bp,
+    get_cached_resolution_plan,
+)
 from quickdesk.transfers import transfers_bp
 from datetime import datetime
 from quickdesk.db import connect_db, init_db
@@ -27,6 +34,12 @@ from quickdesk.auth import (
     roles_required,
 )
 from quickdesk.users import users_bp
+from quickdesk.recommendation import recommend_assignees
+from quickdesk.ai_routes import (
+    ai_bp,
+    get_cached_analysis,
+)
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv(
@@ -38,6 +51,8 @@ app.register_blueprint(users_bp)
 app.register_blueprint(transfers_bp)
 app.register_blueprint(audit_bp)
 app.register_blueprint(dashboard_bp)
+app.register_blueprint(ai_bp)
+app.register_blueprint(resolution_ai_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:
@@ -346,10 +361,92 @@ def index():
                 '''
             ).fetchall()
 
+    assignment_recommendations = {}
+
+    if (
+            g.user['role'] == 'admin'
+            and assignment_filter == 'unassigned'
+    ):
+        for todo in todos:
+            if todo['assignee_id'] is None:
+                assignment_recommendations[
+                    todo['id']
+                ] = recommend_assignees(
+                    todo['id'],
+                    limit=3,
+                )
 
     current_time = datetime.now().strftime(
         '%Y-%m-%d %H:%M:%S'
     )
+
+
+    selected_ai_ticket = request.args.get(
+        'ai_ticket',
+        type=int,
+    )
+    ai_analysis = None
+
+    if selected_ai_ticket is not None:
+        selected_todo = next(
+            (
+                todo
+                for todo in all_todos
+                if todo['id'] == selected_ai_ticket
+            ),
+            None,
+        )
+
+        if selected_todo is not None:
+            can_view_ai = (
+                    g.user['role'] == 'admin'
+                    and selected_todo['assignee_id'] is None
+            )
+
+            if can_view_ai:
+                ai_analysis = get_cached_analysis(
+                    selected_todo
+                )
+    selected_assistant_ticket = request.args.get(
+        'assistant_ticket',
+        type=int,
+    )
+    resolution_assistance = None
+
+    if selected_assistant_ticket is not None:
+        assistant_todo = next(
+            (
+                todo
+                for todo in all_todos
+                if todo['id']
+                == selected_assistant_ticket
+            ),
+            None,
+        )
+
+        can_view_resolution_assistant = (
+            assistant_todo is not None
+            and g.user['role'] == 'assignee'
+            and assistant_todo['assignee_id']
+            == g.user['id']
+            and assistant_todo['status']
+            != 'completed'
+        )
+
+        if can_view_resolution_assistant:
+            similar_cases = (
+                find_similar_resolved_tickets(
+                    assistant_todo,
+                    limit=3,
+                )
+            )
+
+            resolution_assistance = (
+                get_cached_resolution_plan(
+                    assistant_todo,
+                    similar_cases,
+                )
+            )
 
 
     return render_template(
@@ -369,6 +466,15 @@ def index():
         assigned_count=assigned_count,
         pending_transfer_requests=pending_transfer_requests,
         transfer_count=transfer_count,
+        assignment_recommendations=assignment_recommendations,
+        selected_ai_ticket=selected_ai_ticket,
+        ai_analysis=ai_analysis,
+        selected_assistant_ticket=(
+            selected_assistant_ticket
+        ),
+        resolution_assistance=(
+            resolution_assistance
+        ),
     )
 
 @app.route('/add', methods=['POST'])
@@ -491,6 +597,190 @@ def toggle_todo(todo_id):
 
     return redirect(url_for('index'))
 
+@app.route(
+    '/resolve/<int:todo_id>',
+    methods=['GET', 'POST'],
+)
+@login_required
+def resolve_ticket(todo_id):
+    """由当前处理人填写解决记录并完成工单。"""
+    with closing(connect_db()) as conn:
+        todo = conn.execute(
+            '''
+            SELECT *
+            FROM todos
+            WHERE id = ?
+            ''',
+            (todo_id,),
+        ).fetchone()
+
+    if todo is None:
+        flash('未找到指定工单！', 'error')
+        return redirect(url_for('index'))
+
+    if (
+        g.user['role'] != 'assignee'
+        or not is_ticket_assignee(todo, g.user)
+    ):
+        flash(
+            '只有当前处理人可以填写解决记录！',
+            'error',
+        )
+        return redirect(url_for('index'))
+
+    if todo['status'] == 'completed':
+        flash('该工单已经完成！', 'info')
+        return redirect(url_for('index'))
+
+    if todo['status'] != 'in_progress':
+        flash(
+            '请先开始处理工单，再填写解决记录！',
+            'warning',
+        )
+        return redirect(url_for('index'))
+
+    if request.method == 'GET':
+        return render_template(
+            'resolve.html',
+            todo=todo,
+        )
+
+    root_cause = request.form.get(
+        'root_cause',
+        '',
+    ).strip()
+
+    resolution = request.form.get(
+        'resolution',
+        '',
+    ).strip()
+
+    resolution_summary = request.form.get(
+        'resolution_summary',
+        '',
+    ).strip()
+
+    if len(root_cause) < 3:
+        flash(
+            '请填写明确的根本原因，至少3个字符！',
+            'error',
+        )
+        return render_template(
+            'resolve.html',
+            todo=todo,
+            root_cause=root_cause,
+            resolution=resolution,
+            resolution_summary=resolution_summary,
+        )
+
+    if len(resolution) < 5:
+        flash(
+            '请填写完整的解决方案，至少5个字符！',
+            'error',
+        )
+        return render_template(
+            'resolve.html',
+            todo=todo,
+            root_cause=root_cause,
+            resolution=resolution,
+            resolution_summary=resolution_summary,
+        )
+
+    if not resolution_summary:
+        resolution_summary = ' '.join(
+            resolution.split()
+        )[:160]
+
+    if len(resolution_summary) > 200:
+        flash(
+            '解决摘要不能超过200个字符！',
+            'error',
+        )
+        return render_template(
+            'resolve.html',
+            todo=todo,
+            root_cause=root_cause,
+            resolution=resolution,
+            resolution_summary=resolution_summary,
+        )
+
+    with closing(connect_db()) as conn:
+        current_todo = conn.execute(
+            '''
+            SELECT *
+            FROM todos
+            WHERE id = ?
+            ''',
+            (todo_id,),
+        ).fetchone()
+
+        if (
+            current_todo is None
+            or current_todo['status'] != 'in_progress'
+            or current_todo['assignee_id'] != g.user['id']
+        ):
+            flash(
+                '工单状态或处理人已经变化，请重新检查！',
+                'error',
+            )
+            return redirect(url_for('index'))
+
+        cursor = conn.execute(
+            '''
+            UPDATE todos
+            SET status = 'completed',
+                completed = 1,
+                root_cause = ?,
+                resolution = ?,
+                resolution_summary = ?,
+                resolved_by_id = ?,
+                resolved_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND status = 'in_progress'
+              AND assignee_id = ?
+            ''',
+            (
+                root_cause,
+                resolution,
+                resolution_summary,
+                g.user['id'],
+                todo_id,
+                g.user['id'],
+            ),
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            flash(
+                '工单完成失败，请刷新后重试！',
+                'error',
+            )
+            return redirect(url_for('index'))
+
+        record_ticket_action(
+            conn,
+            current_todo,
+            g.user,
+            'resolved',
+            old_value='处理中',
+            new_value='已完成',
+            details=(
+                f'根本原因：{root_cause}；'
+                f'解决摘要：{resolution_summary}'
+            ),
+        )
+
+        conn.commit()
+
+    flash(
+        '解决记录已保存，工单已完成！',
+        'success',
+    )
+    return redirect(url_for('index'))
+
+
+
 @app.route('/status/<int:todo_id>', methods=['POST'])
 @login_required
 def update_status(todo_id):
@@ -505,6 +795,14 @@ def update_status(todo_id):
     if new_status not in allowed_statuses:
         flash('无效的工单状态！', 'error')
         return redirect(url_for('index'))
+
+    if new_status == 'completed':
+        return redirect(
+            url_for(
+                'resolve_ticket',
+                todo_id=todo_id,
+            )
+        )
 
     with closing(connect_db()) as conn:
         todo = conn.execute(
@@ -902,6 +1200,45 @@ def toggle_todo_with_children(todo_id):
 
         if not can_process_ticket(todo, g.user):
             flash('你没有权限批量更新此工单！', 'error')
+            return redirect(url_for('index'))
+
+        if not todo['completed']:
+            flash(
+                '批量完成已停用。每张工单都必须'
+                '由当前处理人填写独立解决记录！',
+                'warning',
+            )
+
+            if (
+                g.user['role'] == 'assignee'
+                and is_ticket_assignee(todo, g.user)
+            ):
+                return redirect(
+                    url_for(
+                        'resolve_ticket',
+                        todo_id=todo_id,
+                    )
+                )
+
+            return redirect(url_for('index'))
+
+        if not todo['completed']:
+            if (
+                g.user['role'] == 'assignee'
+                and is_ticket_assignee(todo, g.user)
+            ):
+                return redirect(
+                    url_for(
+                        'resolve_ticket',
+                        todo_id=todo_id,
+                    )
+                )
+
+            flash(
+                '只有当前处理人填写解决记录后'
+                '才能完成工单！',
+                'error',
+            )
             return redirect(url_for('index'))
 
         new_completed = 0 if todo['completed'] else 1
