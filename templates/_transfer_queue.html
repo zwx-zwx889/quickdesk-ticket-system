@@ -49,6 +49,221 @@
                 {{ transfer.reason }}
             </div>
 
+            <div class="mb-3">
+    <form action="{{ url_for(
+                        'transfer_ai.generate_ai_transfer_review',
+                        transfer_id=transfer.id
+                    ) }}"
+          method="post"
+          class="d-inline">
+        <button type="submit"
+                class="btn btn-outline-info">
+            <i class="bi bi-robot"></i>
+            DeepSeek 辅助审核
+        </button>
+    </form>
+
+    <small class="text-muted ms-2">
+        AI只提供建议，最终审批仍由管理员决定
+    </small>
+</div>
+
+{% if selected_transfer_review == transfer.id
+      and transfer_ai_review %}
+    {% set review = transfer_ai_review %}
+
+    <div class="card border-info mb-4">
+        <div class="card-header bg-info bg-opacity-10">
+            <div class="d-flex flex-wrap
+                        justify-content-between
+                        align-items-center gap-2">
+                <strong>
+                    <i class="bi bi-robot"></i>
+                    DeepSeek 转交审核建议
+                </strong>
+
+                <div>
+                    {% if review.decision == 'approve' %}
+                        <span class="badge bg-success">
+                            建议批准
+                        </span>
+                    {% elif review.decision == 'reject' %}
+                        <span class="badge bg-danger">
+                            建议拒绝
+                        </span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">
+                            建议人工复核
+                        </span>
+                    {% endif %}
+
+                    <span class="badge bg-secondary">
+                        可信度：{{ review.confidence }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                AI评估仅用于辅助管理员判断，不会自动批准、
+                拒绝或修改工单处理人。
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <div class="text-muted small">
+                        转交理由质量
+                    </div>
+                    <strong>
+                        {{ review.reason_quality }}
+                    </strong>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="text-muted small">
+                        当前人员技能错配
+                    </div>
+                    <strong>
+                        {% if review.skill_gap %}
+                            <span class="text-danger">
+                                可能存在
+                            </span>
+                        {% else %}
+                            <span class="text-success">
+                                暂未发现
+                            </span>
+                        {% endif %}
+                    </strong>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="text-muted small">
+                        SLA风险
+                    </div>
+                    <strong>
+                        {% if review.sla_risk == '高' %}
+                            <span class="text-danger">
+                                高
+                            </span>
+                        {% elif review.sla_risk == '低' %}
+                            <span class="text-success">
+                                低
+                            </span>
+                        {% else %}
+                            <span class="text-warning">
+                                中
+                            </span>
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+
+            {% if review.summary %}
+                <div class="mb-3">
+                    <h6>
+                        <i class="bi bi-card-text"></i>
+                        审核摘要
+                    </h6>
+                    <p class="mb-0">
+                        {{ review.summary }}
+                    </p>
+                </div>
+            {% endif %}
+
+            {% if review.evidence %}
+                <div class="mb-3">
+                    <h6>
+                        <i class="bi bi-search"></i>
+                        判断依据
+                    </h6>
+                    <ul class="mb-0">
+                        {% for item in review.evidence %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if review.risks %}
+                <div class="mb-3">
+                    <h6>
+                        <i class="bi bi-exclamation-diamond"></i>
+                        审批风险
+                    </h6>
+                    <ul class="mb-0">
+                        {% for item in review.risks %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            {% if review.questions %}
+                <div class="mb-3">
+                    <h6>
+                        <i class="bi bi-question-circle"></i>
+                        建议补充确认
+                    </h6>
+                    <ul class="mb-0">
+                        {% for item in review.questions %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <div class="mb-3">
+                <h6>
+                    <i class="bi bi-people"></i>
+                    推荐接收处理人
+                </h6>
+
+                {% if review.recommended_assignees %}
+                    <div class="row g-2">
+                        {% for candidate
+                              in review.recommended_assignees %}
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 h-100">
+                                    <strong>
+                                        {{ candidate.display_name }}
+                                    </strong>
+
+                                    <div class="small text-muted">
+                                        {{ candidate.department
+                                           or '未填写部门' }}
+                                    </div>
+
+                                    <div class="small mt-1">
+                                        技能：
+                                        {{ candidate.skills
+                                           or '未填写' }}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-muted">
+                        AI暂未给出明确的接收人员建议，
+                        请管理员人工选择。
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="small text-muted">
+                模型：{{ transfer_ai_model or 'DeepSeek' }}
+                {% if transfer_ai_created_at %}
+                    · 生成时间：
+                    {{ transfer_ai_created_at }}
+                {% endif %}
+                · 已启用缓存
+            </div>
+        </div>
+    </div>
+{% endif %}
+
             <div class="row g-3">
                 <div class="col-lg-7">
                     <form

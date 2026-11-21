@@ -475,7 +475,33 @@ def init_db():
                     model
                 )
             )
+
             """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_transfer_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transfer_request_id INTEGER NOT NULL,
+                requested_by_id INTEGER NOT NULL,
+                context_hash TEXT NOT NULL,
+                model TEXT NOT NULL,
+                review_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (transfer_request_id)
+                    REFERENCES transfer_requests (id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_id)
+                    REFERENCES users (id),
+                UNIQUE (
+                    transfer_request_id,
+                    context_hash,
+                    model
+                )
+            )
+            """
+
         )
 
         conn.execute(
@@ -571,5 +597,39 @@ def init_db():
             WHERE status = 'pending'
             """
         )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS
+            ai_dashboard_insights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                requested_by_id INTEGER NOT NULL,
+                context_hash TEXT NOT NULL,
+                model TEXT NOT NULL,
+                insight_json TEXT NOT NULL,
+                created_at TIMESTAMP
+                    DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
+                    DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (requested_by_id)
+                    REFERENCES users (id),
+                UNIQUE (
+                    context_hash,
+                    model
+                )
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+            idx_ai_dashboard_insights_created
+            ON ai_dashboard_insights (
+                created_at
+            )
+            """
+        )
+
 
         conn.commit()

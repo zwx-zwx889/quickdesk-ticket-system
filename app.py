@@ -1,3 +1,5 @@
+import os
+import json
 from contextlib import closing
 from flask import (
     Flask,
@@ -12,9 +14,11 @@ from quickdesk.audit import (
     audit_bp,
     record_ticket_action,
 )
+from quickdesk.transfer_ai_routes import transfer_ai_bp
 from quickdesk.case_retrieval import (
     find_similar_resolved_tickets,
 )
+from quickdesk.dashboard_ai_routes import dashboard_ai_bp
 from quickdesk.resolution_routes import (
     resolution_ai_bp,
     get_cached_resolution_plan,
@@ -27,7 +31,6 @@ from quickdesk.sla import (
     normalize_priority,
 )
 from quickdesk.dashboard import dashboard_bp
-import os
 from quickdesk.auth import (
     auth_bp,
     login_required,
@@ -53,6 +56,8 @@ app.register_blueprint(audit_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(ai_bp)
 app.register_blueprint(resolution_ai_bp)
+app.register_blueprint(transfer_ai_bp)
+app.register_blueprint(dashboard_ai_bp)
 
 def get_todos_hierarchical():
     with closing(connect_db()) as conn:
@@ -448,6 +453,101 @@ def index():
                 )
             )
 
+    selected_transfer_review = request.args.get(
+        'transfer_review',
+        type=int,
+    )
+
+    transfer_ai_review = None
+    transfer_ai_model = None
+    transfer_ai_created_at = None
+
+    can_view_transfer_review = (
+            g.user['role'] == 'admin'
+            and selected_transfer_review is not None
+            and any(
+        transfer['id']
+        == selected_transfer_review
+        for transfer in pending_transfer_requests
+    )
+    )
+
+    if can_view_transfer_review:
+        with closing(connect_db()) as conn:
+            cached_transfer_review = conn.execute(
+                """
+                SELECT review_json,
+                       model,
+                       created_at
+                FROM ai_transfer_reviews
+                WHERE transfer_request_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (selected_transfer_review,),
+            ).fetchone()
+
+        if cached_transfer_review is not None:
+            try:
+                transfer_ai_review = json.loads(
+                    cached_transfer_review[
+                        'review_json'
+                    ]
+                )
+            except (
+                    json.JSONDecodeError,
+                    TypeError,
+            ):
+                transfer_ai_review = None
+
+            if isinstance(
+                    transfer_ai_review,
+                    dict,
+            ):
+                candidate_by_id = {
+                    user['id']: user
+                    for user in assignee_users
+                }
+
+                recommended_assignees = []
+
+                for candidate_id in (
+                        transfer_ai_review.get(
+                            'recommended_assignee_ids',
+                            [],
+                        )
+                ):
+                    candidate = candidate_by_id.get(
+                        candidate_id
+                    )
+
+                    if candidate is not None:
+                        recommended_assignees.append({
+                            'id': candidate['id'],
+                            'display_name': (
+                                candidate['display_name']
+                            ),
+                            'department': (
+                                candidate['department']
+                            ),
+                            'skills': (
+                                candidate['skills']
+                            ),
+                        })
+
+                transfer_ai_review[
+                    'recommended_assignees'
+                ] = recommended_assignees
+
+                transfer_ai_model = (
+                    cached_transfer_review['model']
+                )
+
+                transfer_ai_created_at = (
+                    cached_transfer_review[
+                        'created_at'
+                    ]
+                )
 
     return render_template(
         'index.html',
@@ -464,9 +564,13 @@ def index():
         transfer_departments=transfer_departments,
         unassigned_count=unassigned_count,
         assigned_count=assigned_count,
-        pending_transfer_requests=pending_transfer_requests,
+        pending_transfer_requests=(
+            pending_transfer_requests
+        ),
         transfer_count=transfer_count,
-        assignment_recommendations=assignment_recommendations,
+        assignment_recommendations=(
+            assignment_recommendations
+        ),
         selected_ai_ticket=selected_ai_ticket,
         ai_analysis=ai_analysis,
         selected_assistant_ticket=(
@@ -474,6 +578,14 @@ def index():
         ),
         resolution_assistance=(
             resolution_assistance
+        ),
+        selected_transfer_review=(
+            selected_transfer_review
+        ),
+        transfer_ai_review=transfer_ai_review,
+        transfer_ai_model=transfer_ai_model,
+        transfer_ai_created_at=(
+            transfer_ai_created_at
         ),
     )
 

@@ -2,7 +2,7 @@
 
 from contextlib import closing
 from datetime import datetime, timedelta
-
+import json
 from flask import (
     Blueprint,
     render_template,
@@ -186,6 +186,46 @@ def dashboard():
             '''
         ).fetchall()
 
+        latest_ai_insight = conn.execute(
+            """
+            SELECT insight_json,
+                   model,
+                   created_at,
+                   updated_at
+            FROM ai_dashboard_insights
+            ORDER BY updated_at DESC,
+                     id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    ai_insight = None
+    ai_insight_model = None
+    ai_insight_created_at = None
+
+    if latest_ai_insight is not None:
+        try:
+            ai_insight = json.loads(
+                latest_ai_insight['insight_json']
+            )
+        except (
+            json.JSONDecodeError,
+            TypeError,
+        ):
+            ai_insight = None
+
+        if isinstance(ai_insight, dict):
+            ai_insight_model = (
+                latest_ai_insight['model']
+            )
+
+            ai_insight_created_at = (
+                latest_ai_insight['updated_at']
+                or latest_ai_insight['created_at']
+            )
+        else:
+            ai_insight = None
+
     created_by_day = {
         row['day']: row['ticket_count']
         for row in created_rows
@@ -233,4 +273,9 @@ def dashboard():
         trend_labels=trend_labels,
         created_trend=created_trend,
         completed_trend=completed_trend,
+        ai_insight=ai_insight,
+        ai_insight_model=ai_insight_model,
+        ai_insight_created_at=(
+            ai_insight_created_at
+        ),
     )

@@ -1659,6 +1659,397 @@ class FlaskTasksTestCase(unittest.TestCase):
 
         self.assertEqual(cache_count, 1)
 
+    def _create_pending_ai_transfer(self):
+        """Create a pending transfer and log in as admin."""
+        ticket_id, zhangwei_id, liqiang_id = (
+            self._create_assigned_transfer_ticket(
+                'AI转交审核测试工单'
+            )
+        )
+
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        self.client.post(
+            f'/transfer-request/{ticket_id}',
+            data={
+                'requested_department': '技术支持部',
+                'reason': (
+                    '当前工单需要网络故障技能，'
+                    '申请转交给更合适的处理人'
+                ),
+            },
+            follow_redirects=True,
+        )
+
+        with closing(
+            sqlite3.connect('quickdesk.db')
+        ) as conn:
+            transfer_id = conn.execute(
+                '''
+                SELECT id
+                FROM transfer_requests
+                WHERE todo_id = ?
+                  AND status = 'pending'
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self._login_as(
+            'yy-admin123',
+            'Qd@yy-admin123',
+        )
+
+        return (
+            ticket_id,
+            transfer_id,
+            zhangwei_id,
+            liqiang_id,
+        )
+
+    def _fake_transfer_review_result(
+        self,
+        candidate_id,
+    ):
+        """Return a deterministic DeepSeek transfer review."""
+        return {
+            'available': True,
+            'status': 'success',
+            'message': '测试转交评估已生成',
+            'model': 'deepseek-flash',
+            'review': {
+                'decision': 'approve',
+                'confidence': '中',
+                'reason_quality': '充分',
+                'skill_gap': True,
+                'sla_risk': '中',
+                'summary': (
+                    '当前处理人技能与工单问题存在差异，'
+                    '建议管理员核实后批准转交。'
+                ),
+                'evidence': [
+                    '转交理由说明了所需技能',
+                    '候选处理人具备相关技能',
+                ],
+                'risks': [
+                    '转交后需要确认新处理人及时接单',
+                ],
+                'questions': [
+                    '当前处理人是否已经完成部分排查？',
+                ],
+                'recommended_assignee_ids': [
+                    candidate_id,
+                ],
+            },
+        }
+
+    def test_admin_can_generate_ai_transfer_review(self):
+        """Test admin AI review is cached without auto approval."""
+        (
+            ticket_id,
+            transfer_id,
+            zhangwei_id,
+            liqiang_id,
+        ) = self._create_pending_ai_transfer()
+
+        with patch(
+            'quickdesk.transfer_ai_routes.'
+            'generate_transfer_review',
+            return_value=(
+                self._fake_transfer_review_result(
+                    liqiang_id
+                )
+            ),
+        ) as mocked_generate:
+            response = self.client.post(
+                (
+                    f'/transfers/{transfer_id}'
+                    '/ai-review'
+                ),
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_generate.assert_called_once()
+
+        with closing(
+            sqlite3.connect('quickdesk.db')
+        ) as conn:
+            cache_count = conn.execute(
+                '''
+                SELECT COUNT(*)
+                FROM ai_transfer_reviews
+                WHERE transfer_request_id = ?
+                ''',
+                (transfer_id,),
+            ).fetchone()[0]
+
+            transfer_status = conn.execute(
+                '''
+                SELECT status
+                FROM transfer_requests
+                WHERE id = ?
+                ''',
+                (transfer_id,),
+            ).fetchone()[0]
+
+            ticket_assignee = conn.execute(
+                '''
+                SELECT assignee_id
+                FROM todos
+                WHERE id = ?
+                ''',
+                (ticket_id,),
+            ).fetchone()[0]
+
+        self.assertEqual(cache_count, 1)
+        self.assertEqual(
+            transfer_status,
+            'pending',
+        )
+        self.assertEqual(
+            ticket_assignee,
+            zhangwei_id,
+        )
+
+    def test_ai_transfer_review_uses_cache(self):
+        """Test repeated review avoids another API call."""
+        (
+            _,
+            transfer_id,
+            _,
+            liqiang_id,
+        ) = self._create_pending_ai_transfer()
+
+        with patch(
+            'quickdesk.transfer_ai_routes.'
+            'generate_transfer_review',
+            return_value=(
+                self._fake_transfer_review_result(
+                    liqiang_id
+                )
+            ),
+        ) as first_call:
+            first_response = self.client.post(
+                (
+                    f'/transfers/{transfer_id}'
+                    '/ai-review'
+                ),
+                follow_redirects=False,
+            )
+
+        self.assertEqual(
+            first_response.status_code,
+            302,
+        )
+        first_call.assert_called_once()
+
+        with patch(
+            'quickdesk.transfer_ai_routes.'
+            'generate_transfer_review',
+            side_effect=AssertionError(
+                '缓存存在时不应再次调用DeepSeek'
+            ),
+        ) as second_call:
+            second_response = self.client.post(
+                (
+                    f'/transfers/{transfer_id}'
+                    '/ai-review'
+                ),
+                follow_redirects=True,
+            )
+
+        self.assertEqual(
+            second_response.status_code,
+            200,
+        )
+        second_call.assert_not_called()
+
+        self.assertIn(
+            'DeepSeek 转交审核建议'.encode(
+                'utf-8'
+            ),
+            second_response.data,
+        )
+
+        self.assertIn(
+            '建议批准'.encode('utf-8'),
+            second_response.data,
+        )
+
+    def test_assignee_cannot_generate_transfer_review(self):
+        """Test transfer AI review requires admin role."""
+        (
+            _,
+            transfer_id,
+            _,
+            liqiang_id,
+        ) = self._create_pending_ai_transfer()
+
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        with patch(
+            'quickdesk.transfer_ai_routes.'
+            'generate_transfer_review',
+            return_value=(
+                self._fake_transfer_review_result(
+                    liqiang_id
+                )
+            ),
+        ) as mocked_generate:
+            response = self.client.post(
+                (
+                    f'/transfers/{transfer_id}'
+                    '/ai-review'
+                ),
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_generate.assert_not_called()
+
+    def _fake_dashboard_insight_result(self):
+        """Return a deterministic dashboard AI result."""
+        return {
+            'available': True,
+            'status': 'success',
+            'message': '测试运营洞察已生成',
+            'model': 'deepseek-flash',
+            'insight': {
+                'health_level': '关注',
+                'confidence': '中',
+                'executive_summary': (
+                    '测试运营摘要：当前存在少量待处理工单。'
+                ),
+                'key_findings': [
+                    '待处理工单需要及时跟进',
+                ],
+                'sla_risks': [
+                    '未分派工单可能增加响应等待时间',
+                ],
+                'workload_findings': [
+                    '当前处理人负载总体可控',
+                ],
+                'alerts': [
+                    {
+                        'title': '存在未分派工单',
+                        'severity': '中',
+                        'reason': '当前存在待管理员分派的工单',
+                    },
+                ],
+                'recommendations': [
+                    {
+                        'title': '及时完成工单分派',
+                        'priority': '高',
+                        'action': '管理员核实并分派未分派工单',
+                        'expected_benefit': '缩短首次响应时间',
+                    },
+                ],
+            },
+        }
+
+    def test_admin_can_generate_dashboard_ai_insight(self):
+        """Test that an admin can generate an insight."""
+        with patch(
+            'quickdesk.dashboard_ai_routes.'
+            'generate_dashboard_insight',
+            return_value=(
+                self._fake_dashboard_insight_result()
+            ),
+        ) as mocked_generate:
+            response = self.client.post(
+                '/dashboard/ai-insight',
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mocked_generate.assert_called_once()
+
+        with closing(
+            sqlite3.connect('quickdesk.db')
+        ) as conn:
+            cache_count = conn.execute(
+                '''
+                SELECT COUNT(*)
+                FROM ai_dashboard_insights
+                '''
+            ).fetchone()[0]
+
+        self.assertEqual(cache_count, 1)
+
+    def test_dashboard_ai_insight_uses_cache(self):
+        """Test unchanged data avoids another API call."""
+        with patch(
+            'quickdesk.dashboard_ai_routes.'
+            'generate_dashboard_insight',
+            return_value=(
+                self._fake_dashboard_insight_result()
+            ),
+        ) as first_call:
+            first_response = self.client.post(
+                '/dashboard/ai-insight',
+                follow_redirects=False,
+            )
+
+        self.assertEqual(
+            first_response.status_code,
+            302,
+        )
+        first_call.assert_called_once()
+
+        with patch(
+            'quickdesk.dashboard_ai_routes.'
+            'generate_dashboard_insight',
+            side_effect=AssertionError(
+                '缓存存在时不应再次调用DeepSeek'
+            ),
+        ) as second_call:
+            second_response = self.client.post(
+                '/dashboard/ai-insight',
+                follow_redirects=True,
+            )
+
+        self.assertEqual(
+            second_response.status_code,
+            200,
+        )
+        second_call.assert_not_called()
+
+        self.assertIn(
+            'DeepSeek 运营洞察'.encode('utf-8'),
+            second_response.data,
+        )
+        self.assertIn(
+            '测试运营摘要'.encode('utf-8'),
+            second_response.data,
+        )
+
+    def test_dashboard_ai_insight_requires_admin(self):
+        """Test that assignees cannot generate insights."""
+        self._login_as(
+            'js-zhangwei123',
+            'Qd@js-zhangwei123',
+        )
+
+        with patch(
+            'quickdesk.dashboard_ai_routes.'
+            'generate_dashboard_insight',
+            return_value=(
+                self._fake_dashboard_insight_result()
+            ),
+        ) as mocked_generate:
+            response = self.client.post(
+                '/dashboard/ai-insight',
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_generate.assert_not_called()
 
 
 class BasicUITestCase(unittest.TestCase):

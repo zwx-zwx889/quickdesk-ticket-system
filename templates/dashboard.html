@@ -68,6 +68,303 @@
             </p>
         </div>
 
+        {% with messages = get_flashed_messages(
+    with_categories=true
+) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{
+                    'danger'
+                    if category == 'error'
+                    else 'success'
+                    if category == 'success'
+                    else 'info'
+                 }}
+                 alert-dismissible fade show"
+                 role="alert">
+                {{ message }}
+
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="alert">
+                </button>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card shadow-sm border-primary mb-4">
+    <div class="card-header bg-primary text-white">
+        <div class="d-flex flex-wrap
+                    justify-content-between
+                    align-items-center gap-2">
+            <strong>
+                <i class="bi bi-robot"></i>
+                DeepSeek 运营洞察
+            </strong>
+
+            {% if ai_insight %}
+                {% if ai_insight.health_level == '风险' %}
+                    <span class="badge bg-danger">
+                        运营状态：风险
+                    </span>
+                {% elif ai_insight.health_level == '正常' %}
+                    <span class="badge bg-success">
+                        运营状态：正常
+                    </span>
+                {% else %}
+                    <span class="badge bg-warning text-dark">
+                        运营状态：需要关注
+                    </span>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card-body">
+        <div class="d-flex flex-wrap
+                    justify-content-between
+                    align-items-center gap-3 mb-3">
+            <div>
+                <div class="fw-semibold">
+                    根据工单状态、SLA表现、最近趋势和人员负载，
+                    生成管理员可执行的运营建议。
+                </div>
+
+                <div class="small text-muted">
+                    AI只提供辅助分析，不会自动分派、审批或修改工单。
+                </div>
+            </div>
+
+            <form action="{{ url_for(
+                                'dashboard_ai.generate_ai_insight'
+                            ) }}"
+                  method="post">
+                <button type="submit"
+                        class="btn btn-primary">
+                    <i class="bi bi-stars"></i>
+
+                    {% if ai_insight %}
+                        更新运营洞察
+                    {% else %}
+                        生成运营洞察
+                    {% endif %}
+                </button>
+            </form>
+        </div>
+
+        {% if ai_insight %}
+            <div class="alert alert-light border">
+                <div class="d-flex flex-wrap
+                            justify-content-between gap-2">
+                    <strong>
+                        管理摘要
+                    </strong>
+
+                    <span class="badge bg-secondary">
+                        可信度：{{ ai_insight.confidence }}
+                    </span>
+                </div>
+
+                <div class="mt-2">
+                    {{ ai_insight.executive_summary }}
+                </div>
+            </div>
+
+            {% if ai_insight.alerts %}
+                <div class="mb-4">
+                    <h5>
+                        <i class="bi bi-exclamation-triangle"></i>
+                        运营预警
+                    </h5>
+
+                    <div class="row g-3">
+                        {% for alert in ai_insight.alerts %}
+                            <div class="col-md-6">
+                                <div class="card h-100 border-{{
+                                    'danger'
+                                    if alert.severity == '高'
+                                    else 'warning'
+                                    if alert.severity == '中'
+                                    else 'secondary'
+                                }}">
+                                    <div class="card-body">
+                                        <div class="d-flex
+                                                    justify-content-between
+                                                    gap-2">
+                                            <strong>
+                                                {{ alert.title }}
+                                            </strong>
+
+                                            <span class="badge bg-{{
+                                                'danger'
+                                                if alert.severity == '高'
+                                                else 'warning text-dark'
+                                                if alert.severity == '中'
+                                                else 'secondary'
+                                            }}">
+                                                {{ alert.severity }}
+                                            </span>
+                                        </div>
+
+                                        <div class="mt-2 text-muted">
+                                            {{ alert.reason }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-4">
+                    <h5>
+                        <i class="bi bi-search"></i>
+                        关键发现
+                    </h5>
+
+                    {% if ai_insight.key_findings %}
+                        <ul class="mb-0">
+                            {% for item
+                                  in ai_insight.key_findings %}
+                                <li class="mb-2">
+                                    {{ item }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="text-muted">
+                            暂无明显异常发现。
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="col-lg-4">
+                    <h5>
+                        <i class="bi bi-alarm"></i>
+                        SLA风险
+                    </h5>
+
+                    {% if ai_insight.sla_risks %}
+                        <ul class="mb-0">
+                            {% for item
+                                  in ai_insight.sla_risks %}
+                                <li class="mb-2">
+                                    {{ item }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="text-muted">
+                            暂无明显SLA风险。
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="col-lg-4">
+                    <h5>
+                        <i class="bi bi-people"></i>
+                        负载分析
+                    </h5>
+
+                    {% if ai_insight.workload_findings %}
+                        <ul class="mb-0">
+                            {% for item
+                                  in ai_insight.workload_findings %}
+                                <li class="mb-2">
+                                    {{ item }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="text-muted">
+                            暂未发现明显负载失衡。
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if ai_insight.recommendations %}
+                <div class="mb-3">
+                    <h5>
+                        <i class="bi bi-lightbulb"></i>
+                        管理改进建议
+                    </h5>
+
+                    <div class="row g-3">
+                        {% for recommendation
+                              in ai_insight.recommendations %}
+                            <div class="col-lg-6">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <div class="d-flex
+                                                    justify-content-between
+                                                    gap-2 mb-2">
+                                            <strong>
+                                                {{ recommendation.title }}
+                                            </strong>
+
+                                            <span class="badge bg-{{
+                                                'danger'
+                                                if recommendation.priority
+                                                   == '高'
+                                                else 'warning text-dark'
+                                                if recommendation.priority
+                                                   == '中'
+                                                else 'secondary'
+                                            }}">
+                                                优先级：
+                                                {{ recommendation.priority }}
+                                            </span>
+                                        </div>
+
+                                        <div class="mb-2">
+                                            <span class="text-muted">
+                                                执行动作：
+                                            </span>
+                                            {{ recommendation.action }}
+                                        </div>
+
+                                        {% if recommendation.expected_benefit %}
+                                            <div>
+                                                <span class="text-muted">
+                                                    预期收益：
+                                                </span>
+                                                {{
+                                                    recommendation
+                                                    .expected_benefit
+                                                }}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="small text-muted border-top pt-3">
+                模型：{{ ai_insight_model or 'DeepSeek' }}
+
+                {% if ai_insight_created_at %}
+                    · 生成时间：
+                    {{ ai_insight_created_at }}
+                {% endif %}
+
+                · 已启用缓存
+            </div>
+        {% else %}
+            <div class="alert alert-secondary mb-0">
+                当前尚未生成运营洞察。点击“生成运营洞察”后，
+                DeepSeek将基于当前汇总数据给出风险提示和管理建议。
+            </div>
+        {% endif %}
+    </div>
+</div>
+
         <div class="row g-3 mb-4">
             <div class="col-6 col-lg-3">
                 <div class="card shadow-sm border-0 h-100">
