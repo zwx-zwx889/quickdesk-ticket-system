@@ -1,0 +1,79 @@
+@startuml
+title QuickDesk工单分派与AI辅助时序图
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam sequence {
+    ArrowColor #555555
+    LifeLineBorderColor #3478C0
+    LifeLineBackgroundColor #F7FAFF
+    ParticipantBorderColor #3478C0
+    ParticipantBackgroundColor #F7FAFF
+    GroupBorderColor #3478C0
+    GroupBackgroundColor #F7FAFF
+}
+
+autonumber
+
+actor 管理员
+boundary 工单管理页面
+control Flask工单路由
+control 处理人推荐服务
+control DeepSeek智能服务
+database SQLite数据库
+participant DeepSeekAPI
+
+管理员 -> 工单管理页面 : 打开待分派工单列表
+工单管理页面 -> Flask工单路由 : 请求待分派工单数据
+Flask工单路由 -> SQLite数据库 : 查询工单、处理人及当前负载
+SQLite数据库 --> Flask工单路由 : 返回工单和人员数据
+
+Flask工单路由 -> 处理人推荐服务 : 计算处理人推荐结果
+处理人推荐服务 -> SQLite数据库 : 查询技能、部门和历史处理记录
+SQLite数据库 --> 处理人推荐服务 : 返回推荐依据
+处理人推荐服务 --> Flask工单路由 : 返回候选处理人及评分
+Flask工单路由 --> 工单管理页面 : 展示待分派工单和处理人推荐
+
+opt 管理员调用工单AI分析
+    管理员 -> 工单管理页面 : 点击“查看AI分析”
+    工单管理页面 -> Flask工单路由 : 请求工单AI分析
+    Flask工单路由 -> DeepSeek智能服务 : 分析当前工单
+
+    DeepSeek智能服务 -> SQLite数据库 : 查询分析缓存
+
+    alt 存在有效缓存
+        SQLite数据库 --> DeepSeek智能服务 : 返回缓存结果
+    else 不存在有效缓存
+        SQLite数据库 --> DeepSeek智能服务 : 未找到有效缓存
+        DeepSeek智能服务 -> DeepSeekAPI : 提交脱敏后的工单上下文
+        DeepSeekAPI --> DeepSeek智能服务 : 返回结构化分析结果
+        DeepSeek智能服务 -> DeepSeek智能服务 : 校验并规范化结果
+        DeepSeek智能服务 -> SQLite数据库 : 保存AI分析缓存
+    end
+
+    DeepSeek智能服务 --> Flask工单路由 : 返回问题分类、建议部门和风险
+    Flask工单路由 --> 工单管理页面 : 展示AI辅助分析
+end
+
+管理员 -> 工单管理页面 : 选择处理人并确认分派
+工单管理页面 -> Flask工单路由 : 提交工单编号和处理人编号
+Flask工单路由 -> SQLite数据库 : 校验工单和处理人状态
+SQLite数据库 --> Flask工单路由 : 返回校验结果
+
+alt 工单和处理人有效
+    Flask工单路由 -> SQLite数据库 : 更新工单处理人
+    Flask工单路由 -> SQLite数据库 : 写入工单分派日志
+    SQLite数据库 --> Flask工单路由 : 提交成功
+    Flask工单路由 --> 工单管理页面 : 返回分派成功
+    工单管理页面 --> 管理员 : 显示已分派工单
+else 校验失败
+    Flask工单路由 --> 工单管理页面 : 返回错误信息
+    工单管理页面 --> 管理员 : 提示重新选择
+end
+
+note over 管理员,DeepSeek智能服务
+处理人推荐和DeepSeek分析仅提供辅助依据，
+最终处理人由管理员选择并确认。
+end note
+
+@enduml

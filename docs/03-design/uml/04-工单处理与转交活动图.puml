@@ -1,0 +1,91 @@
+@startuml
+title QuickDesk工单处理与转交活动图
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam activity {
+    BackgroundColor #F7FAFF
+    BorderColor #3478C0
+    ArrowColor #555555
+    DiamondBackgroundColor #FFF4CC
+    DiamondBorderColor #D6A400
+}
+
+|工单提交人|
+start
+:填写工单信息并提交;
+
+|系统|
+:创建待分派工单;
+:计算SLA截止时间并记录创建日志;
+
+|管理员|
+:查看待分派工单;
+:查看处理人推荐和工单分析;
+:选择处理人并确认分派;
+
+|系统|
+:更新工单处理人;
+:记录工单分派日志;
+
+|工单处理人|
+:查看分配给自己的工单;
+:开始处理并执行问题诊断;
+:按需查看DeepSeek处理建议\n和相似历史案例;
+
+if (是否需要转交？) then (需要)
+
+    :填写原因并提交转交申请;
+
+    |系统|
+    :创建待审批转交申请;
+    :记录转交申请日志;
+
+    |管理员|
+    :查看转交申请;
+    :按需查看DeepSeek审核建议;
+
+    if (是否批准转交？) then (批准)
+        :选择新的接收处理人;
+
+        |系统|
+        :更新工单处理人;
+        :将申请标记为已批准;
+        :保留原SLA截止时间;
+        :记录转交批准日志;
+
+    else (拒绝)
+
+        |系统|
+        :保留原处理人;
+        :将申请标记为已拒绝;
+        :记录转交拒绝日志;
+    endif
+
+    |工单处理人|
+    :处理人继续处置工单;
+
+else (不需要)
+endif
+
+|工单处理人|
+:确认问题已经解决;
+:填写根本原因、解决方案\n和完成摘要;
+:提交完成操作;
+
+|系统|
+:校验解决记录;
+:将工单状态更新为已完成;
+:保存解决时间并记录完成日志;
+
+|工单提交人|
+:查看工单处理结果;
+stop
+
+note right
+DeepSeek仅提供辅助建议，
+分派、审批和完成操作
+均由授权用户确认。
+end note
+
+@enduml

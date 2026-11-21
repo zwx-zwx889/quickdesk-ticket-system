@@ -1,0 +1,64 @@
+@startuml
+title QuickDesk工单生命周期状态图
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam state {
+    BackgroundColor #F7FAFF
+    BorderColor #3478C0
+    ArrowColor #555555
+}
+
+state "待处理\n（尚未分派）" as Unassigned
+state "待处理\n（已经分派）" as Assigned
+state "处理中" as InProgress
+state "已完成" as Completed
+
+[*] --> Unassigned : 提交人或管理员创建工单
+
+Unassigned --> Assigned : 管理员选择处理人\n并确认分派
+
+Assigned --> InProgress : 处理人点击“开始处理”
+
+InProgress --> Completed : 填写根本原因和解决方案\n确认完成工单
+
+Completed --> Assigned : 重新打开工单
+
+Completed --> [*] : 工单归档保留
+
+note right of Unassigned
+数据库状态为 pending，
+处理人编号为空。
+end note
+
+note right of Assigned
+数据库状态仍为 pending，
+处理人编号已经确定。
+
+管理员重新分派处理人时，
+工单仍保持待处理状态。
+end note
+
+note right of InProgress
+数据库状态为 in_progress。
+
+处理人可以提交转交申请。
+管理员批准转交时更换处理人，
+拒绝转交时保留原处理人。
+
+转交过程不改变工单状态，
+也不重新计算SLA截止时间。
+end note
+
+note right of Completed
+数据库状态为 completed，
+同时保存根本原因、
+解决方案和解决时间。
+end note
+
+note bottom of InProgress
+DeepSeek只提供故障处理和转交审核建议，
+不能直接修改工单状态。
+end note
+
+@enduml

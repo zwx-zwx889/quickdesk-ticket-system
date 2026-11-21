@@ -1,0 +1,102 @@
+@startuml
+title QuickDesk企业工单与SLA协作管理系统用例图
+
+top to bottom direction
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 45
+skinparam ranksep 55
+skinparam usecase {
+    BackgroundColor #F7FAFF
+    BorderColor #3478C0
+    ArrowColor #555555
+}
+skinparam actor {
+    BorderColor #333333
+    BackgroundColor white
+}
+
+actor "工单提交人" as Requester
+actor "工单处理人" as Assignee
+actor "管理员" as Admin
+
+rectangle "QuickDesk企业工单与SLA协作管理系统" {
+
+    usecase "登录、退出和\n修改本人密码" as UC_Account
+    usecase "查看、搜索工单\n及SLA状态" as UC_Query
+    usecase "创建工单并\n跟踪处理状态" as UC_CreateTrack
+
+    usecase "查看分配工单、\n开始处理并完成工单" as UC_Handle
+    usecase "申请转交工单" as UC_RequestTransfer
+    usecase "DeepSeek故障处理助手\n与相似历史案例" as UC_ResolutionAI
+
+    usecase "用户与账号管理" as UC_UserAdmin
+    usecase "分派或重新分派工单" as UC_Assign
+    usecase "审批转交申请" as UC_TransferApprove
+
+    usecase "查询操作日志和\n查看数据仪表盘" as UC_Dashboard
+    usecase "智能派单分析与\n转交辅助审核" as UC_AdminAI
+    usecase "生成DeepSeek\n运营洞察" as UC_Insight
+
+    UC_Account -[hidden]right- UC_Query
+    UC_Query -[hidden]right- UC_CreateTrack
+
+    UC_Handle -[hidden]right- UC_RequestTransfer
+    UC_RequestTransfer -[hidden]right- UC_ResolutionAI
+
+    UC_UserAdmin -[hidden]right- UC_Assign
+    UC_Assign -[hidden]right- UC_TransferApprove
+
+    UC_Dashboard -[hidden]right- UC_AdminAI
+    UC_AdminAI -[hidden]right- UC_Insight
+
+    UC_Account -[hidden]down- UC_Handle
+    UC_Handle -[hidden]down- UC_UserAdmin
+    UC_UserAdmin -[hidden]down- UC_Dashboard
+
+    UC_Query -[hidden]down- UC_RequestTransfer
+    UC_RequestTransfer -[hidden]down- UC_Assign
+    UC_Assign -[hidden]down- UC_AdminAI
+
+    UC_CreateTrack -[hidden]down- UC_ResolutionAI
+    UC_ResolutionAI -[hidden]down- UC_TransferApprove
+    UC_TransferApprove -[hidden]down- UC_Insight
+}
+
+Requester -right-> UC_Account
+Requester -right-> UC_Query
+Requester -right-> UC_CreateTrack
+
+Assignee -right-> UC_Account
+Assignee -right-> UC_Query
+Assignee -right-> UC_Handle
+Assignee -right-> UC_RequestTransfer
+Assignee -right-> UC_ResolutionAI
+
+Admin -left-> UC_Account
+Admin -left-> UC_Query
+Admin -left-> UC_UserAdmin
+Admin -left-> UC_Assign
+Admin -left-> UC_TransferApprove
+Admin -left-> UC_Dashboard
+Admin -left-> UC_AdminAI
+Admin -left-> UC_Insight
+
+UC_ResolutionAI .> UC_Handle : <<extend>>
+UC_AdminAI .> UC_Assign : <<extend>>
+UC_AdminAI .> UC_TransferApprove : <<extend>>
+UC_Insight .> UC_Dashboard : <<extend>>
+
+note bottom of UC_AdminAI
+AI只提供辅助分析和候选建议。
+分派及审批结果由管理员确认。
+end note
+
+note bottom of UC_ResolutionAI
+处理人必须核实AI生成的方案，
+AI不能自动修改或完成工单。
+end note
+
+@enduml

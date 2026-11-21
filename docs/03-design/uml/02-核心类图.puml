@@ -1,0 +1,119 @@
+@startuml
+title QuickDesk企业工单与SLA协作管理系统核心类图
+
+top to bottom direction
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 50
+skinparam ranksep 65
+
+skinparam class {
+    BackgroundColor #F7FAFF
+    BorderColor #3478C0
+    ArrowColor #555555
+}
+
+class "用户" as User <<实体类>> {
+    +用户编号: 整数
+    +用户名: 字符串
+    +姓名: 字符串
+    +密码散列值: 字符串
+    +角色: 字符串
+    +所属部门: 字符串
+    +技能: 字符串
+    +是否启用: 布尔值
+    --
+    +验证密码(密码): 布尔值
+    +检查角色(角色): 布尔值
+}
+
+class "工单" as Ticket <<实体类>> {
+    +工单编号: 整数
+    +工单标题: 字符串
+    +问题描述: 字符串
+    +优先级: 字符串
+    +处理状态: 字符串
+    +提交人编号: 整数
+    +处理人编号: 整数
+    +SLA截止时间: 日期时间
+    +父工单编号: 整数
+    +根本原因: 字符串
+    +解决方案: 字符串
+    +解决时间: 日期时间
+    --
+    +分派处理人(用户)
+    +开始处理()
+    +完成工单(解决方案)
+    +判断是否超时(): 布尔值
+}
+
+class "转交申请" as Transfer <<实体类>> {
+    +申请编号: 整数
+    +工单编号: 整数
+    +申请人编号: 整数
+    +原处理人编号: 整数
+    +建议接收部门: 字符串
+    +转交原因: 字符串
+    +审批状态: 字符串
+    +审批人编号: 整数
+    +审批说明: 字符串
+    --
+    +批准转交(新处理人)
+    +拒绝转交(审批说明)
+}
+
+class "操作日志" as AuditLog <<实体类>> {
+    +日志编号: 整数
+    +工单编号: 整数
+    +操作人编号: 整数
+    +操作类型: 字符串
+    +变更前内容: 字符串
+    +变更后内容: 字符串
+    +详细说明: 字符串
+    +操作时间: 日期时间
+}
+
+class "AI分析缓存" as AICache <<实体类>> {
+    +缓存编号: 整数
+    +业务对象编号: 整数
+    +分析类型: 字符串
+    +内容摘要值: 字符串
+    +模型名称: 字符串
+    +分析结果: JSON
+    +请求人编号: 整数
+    +生成时间: 日期时间
+    --
+    +检查缓存是否有效(): 布尔值
+    +读取分析结果(): 字典
+}
+
+User -[hidden]right- Ticket
+Ticket -[hidden]right- AICache
+Transfer -[hidden]right- AuditLog
+
+Ticket -[hidden]down- Transfer
+AICache -[hidden]down- AuditLog
+
+User "1\n提交人" -- "0..*\n工单" Ticket : 创建
+User "0..1\n处理人" -- "0..*\n工单" Ticket : 负责
+
+Ticket "0..1\n父工单" o-- "0..*\n子工单" Ticket : 包含
+
+Ticket "1" -- "0..*" Transfer : 产生
+User "1" -- "0..*" Transfer : 申请或审批
+
+Ticket "0..1" -- "0..*" AuditLog : 记录操作
+User "0..1" -- "0..*" AuditLog : 执行操作
+
+Ticket "1" -- "0..*" AICache : 缓存分析结果
+User "1" -- "0..*" AICache : 发起分析
+
+note bottom of AICache
+根据分析类型保存智能派单、
+故障处理、转交审核和运营洞察结果。
+end note
+
+@enduml
